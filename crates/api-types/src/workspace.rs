@@ -4,7 +4,8 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 /// Workspace metadata pushed from local clients
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct Workspace {
     pub id: Uuid,
     pub project_id: Uuid,
