@@ -18,7 +18,10 @@ import { isTauriApp } from '@/shared/lib/platform';
 import { initZoom, zoomIn, zoomOut, zoomReset } from '@/shared/lib/zoom';
 import { purgePriorElectricCacheOnce } from '@web/app/entry/cutoverCachePurge';
 
-purgePriorElectricCacheOnce();
+// Kick off the one-shot cutover purge before any rendering. We gate
+// `createRoot` below on this promise so router/query initialization cannot
+// read the stale wa-sqlite IndexedDB contents.
+const cutoverPurge = purgePriorElectricCacheOnce();
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
@@ -87,23 +90,25 @@ configureAuthRuntime({
   getCurrentUser: () => oauthApi.getCurrentUser(),
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <PostHogProvider client={posthog}>
-        <Sentry.ErrorBoundary
-          fallback={({ error, componentStack }) => (
-            <CrashScreen
-              error={error instanceof Error ? error : undefined}
-              componentStack={componentStack}
-            />
-          )}
-          showDialog
-        >
-          <ClickToComponent />
-          <App />
-        </Sentry.ErrorBoundary>
-      </PostHogProvider>
-    </QueryClientProvider>
-  </React.StrictMode>
-);
+void cutoverPurge.finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <PostHogProvider client={posthog}>
+          <Sentry.ErrorBoundary
+            fallback={({ error, componentStack }) => (
+              <CrashScreen
+                error={error instanceof Error ? error : undefined}
+                componentStack={componentStack}
+              />
+            )}
+            showDialog
+          >
+            <ClickToComponent />
+            <App />
+          </Sentry.ErrorBoundary>
+        </PostHogProvider>
+      </QueryClientProvider>
+    </React.StrictMode>
+  );
+});

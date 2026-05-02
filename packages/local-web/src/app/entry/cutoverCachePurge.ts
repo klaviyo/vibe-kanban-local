@@ -47,23 +47,26 @@ function clearElectricLocalStorageKeys(): void {
   }
 }
 
-function deleteIndexedDb(name: string): Promise<void> {
+function deleteIndexedDb(name: string): Promise<boolean> {
   return new Promise((resolve) => {
     let request: IDBOpenDBRequest;
     try {
       request = indexedDB.deleteDatabase(name);
     } catch {
-      resolve();
+      resolve(false);
       return;
     }
-    request.onsuccess = () => resolve();
-    request.onerror = () => resolve();
-    request.onblocked = () => resolve();
+    request.onsuccess = () => resolve(true);
+    // `blocked` and `error` mean the delete did not complete, so the stale
+    // wa-sqlite data is still on disk. Treat both as failures so the caller
+    // leaves the sentinel unset and the next launch retries the purge.
+    request.onerror = () => resolve(false);
+    request.onblocked = () => resolve(false);
   });
 }
 
-async function deleteElectricIndexedDbs(): Promise<void> {
-  if (typeof indexedDB === 'undefined') return;
+async function deleteElectricIndexedDbs(): Promise<boolean> {
+  if (typeof indexedDB === 'undefined') return true;
 
   // indexedDB.databases() is unsupported on Firefox and older Safari; in that
   // case we no-op rather than guess at names — the sentinel will still mark
@@ -71,13 +74,13 @@ async function deleteElectricIndexedDbs(): Promise<void> {
   const factory = indexedDB as IDBFactory & {
     databases?: () => Promise<IDBDatabaseInfo[]>;
   };
-  if (typeof factory.databases !== 'function') return;
+  if (typeof factory.databases !== 'function') return true;
 
   let infos: IDBDatabaseInfo[] = [];
   try {
     infos = await factory.databases();
   } catch {
-    return;
+    return false;
   }
 
   const targets = infos
@@ -87,24 +90,33 @@ async function deleteElectricIndexedDbs(): Promise<void> {
       ELECTRIC_IDB_NAME_PATTERNS.some((pattern) => pattern.test(name))
     );
 
-  await Promise.all(targets.map(deleteIndexedDb));
+  const results = await Promise.all(targets.map(deleteIndexedDb));
+  return results.every((ok) => ok);
 }
 
 /**
  * Wipe the prior Electric sync layer's browser cache exactly once per upgraded
  * install. Subsequent loads detect the sentinel and skip the wipe; clearing
  * the sentinel and reloading re-runs the wipe as a manual recovery path.
+ *
+ * Awaitable so callers can gate app mount on purge completion — otherwise
+ * router/query initialization may read the stale IndexedDB contents before
+ * the delete finishes.
  */
-export function purgePriorElectricCacheOnce(): void {
+export async function purgePriorElectricCacheOnce(): Promise<void> {
   if (!isStorageAvailable()) return;
   if (readSentinel()) return;
 
-  void (async () => {
-    try {
-      await deleteElectricIndexedDbs();
-    } finally {
-      clearElectricLocalStorageKeys();
+  let purged = false;
+  try {
+    purged = await deleteElectricIndexedDbs();
+  } finally {
+    clearElectricLocalStorageKeys();
+    // Only mark the install as purged if the IndexedDB wipe actually
+    // succeeded; otherwise the next launch retries instead of permanently
+    // skipping the wipe over stale data.
+    if (purged) {
       writeSentinel();
     }
-  })();
+  }
 }
