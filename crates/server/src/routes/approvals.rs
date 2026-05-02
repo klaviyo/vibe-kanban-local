@@ -26,9 +26,7 @@ async fn respond_to_approval(
     let service = deployment.approvals();
 
     match service.respond(&id, request).await {
-        Ok((outcome, _context)) => {
-            Ok(ResponseJson(ApiResponse::success(outcome)))
-        }
+        Ok((outcome, _context)) => Ok(ResponseJson(ApiResponse::success(outcome))),
         Err(e) => {
             tracing::error!("Failed to respond to approval: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)

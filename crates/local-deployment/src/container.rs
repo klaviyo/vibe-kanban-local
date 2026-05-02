@@ -476,7 +476,6 @@ impl LocalContainerService {
         let child_store = self.child_store.clone();
         let msg_stores = self.msg_stores.clone();
         let db = self.db.clone();
-        let config = self.config.clone();
         let container = self.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
@@ -726,7 +725,6 @@ impl LocalContainerService {
                         }
                     }
                 }
-
             }
 
             // Now that commit/next-action/finalization steps for this process are complete,

@@ -5,7 +5,7 @@ use std::{
 
 use axum::{
     Extension, Json, Router,
-    extract::State,
+    extract::{State, ws::WebSocketUpgrade},
     response::{IntoResponse, Json as ResponseJson},
     routing::{get, post},
 };
@@ -22,8 +22,6 @@ use services::services::container::ContainerService;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
-
-use axum::extract::ws::WebSocketUpgrade;
 
 use super::streams::{DiffStreamQuery, stream_workspace_diff_ws};
 use crate::{DeploymentImpl, error::ApiError};

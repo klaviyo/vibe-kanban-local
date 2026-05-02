@@ -166,9 +166,7 @@ pub async fn gh_cli_setup_handler(
     ApiError,
 > {
     match super::gh_cli_setup::run_gh_cli_setup(&deployment, &workspace).await {
-        Ok(execution_process) => {
-            Ok(ResponseJson(ApiResponse::success(execution_process)))
-        }
+        Ok(execution_process) => Ok(ResponseJson(ApiResponse::success(execution_process))),
         Err(ApiError::Executor(executors::executors::ExecutorError::ExecutableNotFound {
             program,
         })) if program == "brew" => Ok(ResponseJson(ApiResponse::error_with_data(

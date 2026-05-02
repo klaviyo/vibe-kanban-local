@@ -20,9 +20,7 @@ use services::services::container::ContainerService;
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware,
-};
+use crate::{DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware};
 
 #[derive(Debug, Deserialize)]
 struct SessionExecutionProcessQuery {

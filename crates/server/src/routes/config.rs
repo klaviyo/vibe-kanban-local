@@ -394,13 +394,7 @@ async fn check_editor_availability(
     State(_deployment): State<DeploymentImpl>,
     Query(query): Query<CheckEditorAvailabilityQuery>,
 ) -> ResponseJson<ApiResponse<CheckEditorAvailabilityResponse>> {
-    let editor_config = EditorConfig::new(
-        query.editor_type,
-        None,
-        None,
-        None,
-        false,
-    );
+    let editor_config = EditorConfig::new(query.editor_type, None, None, None, false);
 
     let available = editor_config.check_availability().await;
     ResponseJson(ApiResponse::success(CheckEditorAvailabilityResponse {
