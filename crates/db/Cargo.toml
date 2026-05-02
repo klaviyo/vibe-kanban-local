@@ -4,6 +4,7 @@ version = "0.1.44"
 edition = "2024"
 
 [dependencies]
+api-types = { path = "../api-types" }
 utils = { path = "../utils" }
 executors = { path = "../executors" }
 thiserror = { workspace = true }
@@ -19,3 +20,6 @@ serde_with = { workspace = true }
 strum = "0.27.2"
 strum_macros = "0.27.2"
 futures = "0.3.32"
+
+[dev-dependencies]
+tokio = { workspace = true }

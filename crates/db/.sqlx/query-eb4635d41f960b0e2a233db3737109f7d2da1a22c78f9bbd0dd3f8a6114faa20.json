@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects\n               SET name       = CASE WHEN $2 THEN $3 ELSE name END,\n                   color      = CASE WHEN $4 THEN $5 ELSE color END,\n                   sort_order = CASE WHEN $6 THEN $7 ELSE sort_order END,\n                   updated_at = datetime('now', 'subsec')\n               WHERE id = $1\n               RETURNING id              as \"id!: Uuid\",\n                         organization_id as \"organization_id: Uuid\",\n                         name,\n                         color,\n                         sort_order,\n                         created_at      as \"created_at!: DateTime<Utc>\",\n                         updated_at      as \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "organization_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "color",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "sort_order",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "eb4635d41f960b0e2a233db3737109f7d2da1a22c78f9bbd0dd3f8a6114faa20"
+}

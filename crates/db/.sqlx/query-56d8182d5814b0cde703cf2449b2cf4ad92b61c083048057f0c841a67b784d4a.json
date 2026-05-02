@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_assignees WHERE issue_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "56d8182d5814b0cde703cf2449b2cf4ad92b61c083048057f0c841a67b784d4a"
+}

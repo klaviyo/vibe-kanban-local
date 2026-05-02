@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM workspace_issue_links WHERE workspace_id = $1 AND issue_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ea38460bf785c3cdd8c7d178f6aabb87aaf8b0d330593a276c947096c3a1f037"
+}

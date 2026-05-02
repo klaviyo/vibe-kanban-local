@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id          as \"id!: Uuid\",\n                      issue_id    as \"issue_id!: Uuid\",\n                      user_id     as \"user_id!: Uuid\",\n                      assigned_at as \"assigned_at!: DateTime<Utc>\"\n               FROM issue_assignees\n               WHERE issue_id = $1\n               ORDER BY assigned_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "assigned_at!: DateTime<Utc>",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ccd53175694c94ead6ac4f42d51d2b4968164ce9134de040fb7a8f41d6b86e9b"
+}
