@@ -12,6 +12,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use deployment::Deployment;
+use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

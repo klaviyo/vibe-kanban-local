@@ -42,7 +42,7 @@ use services::services::{
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
     container::{ContainerError, ContainerRef, ContainerService},
-    diff_stream::DiffStreamHandle,
+    diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
     queued_message::QueuedMessageService,
