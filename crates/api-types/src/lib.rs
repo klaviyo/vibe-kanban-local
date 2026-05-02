@@ -30,6 +30,7 @@ pub mod response;
 pub mod tag;
 pub mod user;
 pub mod workspace;
+pub mod workspace_issue_link;
 pub mod workspaces;
 
 pub use attachment::*;
@@ -55,6 +56,7 @@ pub use response::*;
 pub use tag::*;
 pub use user::*;
 pub use workspace::*;
+pub use workspace_issue_link::*;
 pub use workspaces::*;
 
 pub fn some_if_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>

@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO users (id, email, first_name, last_name, username)\n               VALUES ($1, $2, $3, $4, $5)\n               RETURNING id         as \"id!: Uuid\",\n                         email,\n                         first_name,\n                         last_name,\n                         username,\n                         created_at as \"created_at!: DateTime<Utc>\",\n                         updated_at as \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "email",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "first_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "username",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "14e72fca6ff785241ab0aaefa1651b7274cc2975828aa08fd9b98fdbb1099f1b"
+}

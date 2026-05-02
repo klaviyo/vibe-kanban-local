@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id       as \"id!: Uuid\",\n                      issue_id as \"issue_id!: Uuid\",\n                      user_id  as \"user_id!: Uuid\"\n               FROM issue_followers\n               WHERE issue_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "0bf42e7fa8b92a0a1084884f6715b201a2504fdab830d0ee7ccd77afe96811ff"
+}

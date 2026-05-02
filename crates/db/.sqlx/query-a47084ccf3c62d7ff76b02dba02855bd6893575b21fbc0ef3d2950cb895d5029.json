@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_followers (id, issue_id, user_id)\n               VALUES ($1, $2, $3)\n               RETURNING id       as \"id!: Uuid\",\n                         issue_id as \"issue_id!: Uuid\",\n                         user_id  as \"user_id!: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a47084ccf3c62d7ff76b02dba02855bd6893575b21fbc0ef3d2950cb895d5029"
+}

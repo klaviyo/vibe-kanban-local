@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_followers WHERE issue_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "5030264f7479307e02a15c5178154cd1fb868c912b14a15761bf23c6c4f53343"
+}
