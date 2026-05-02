@@ -48,6 +48,64 @@ mod sessions;
 mod task_attempts;
 mod workspaces;
 
+const PIPELINE_STATE_START: &str = "<!-- PIPELINE-STATE-START -->";
+const PIPELINE_STATE_END: &str = "<!-- PIPELINE-STATE-END -->";
+
+// Returns byte ranges in `text` whose contents must not be touched by tag
+// substitution. A start delimiter without a matching end protects the
+// remainder of the text — we cannot infer where the daemon-written block
+// would have ended, so the safe choice is to leave it alone.
+fn pipeline_state_protected_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut protected: Vec<(usize, usize)> = Vec::new();
+    let mut scan = 0usize;
+    while let Some(rel_start) = text[scan..].find(PIPELINE_STATE_START) {
+        let block_start = scan + rel_start;
+        let after_start = block_start + PIPELINE_STATE_START.len();
+        let block_end = text[after_start..]
+            .find(PIPELINE_STATE_END)
+            .map(|rel| after_start + rel + PIPELINE_STATE_END.len())
+            .unwrap_or(text.len());
+        protected.push((block_start, block_end));
+        if block_end >= text.len() {
+            break;
+        }
+        scan = block_end;
+    }
+    protected
+}
+
+fn substitute_outside_protected(
+    text: &str,
+    tag_pattern: &Regex,
+    tag_map: &std::collections::HashMap<&str, &str>,
+    protected: &[(usize, usize)],
+) -> String {
+    let replace_in = |segment: &str| -> String {
+        tag_pattern
+            .replace_all(segment, |caps: &regex::Captures| {
+                let tag_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                match tag_map.get(tag_name) {
+                    Some(content) => (*content).to_string(),
+                    None => caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string(),
+                }
+            })
+            .into_owned()
+    };
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    for (p_start, p_end) in protected {
+        if *p_start > cursor {
+            result.push_str(&replace_in(&text[cursor..*p_start]));
+        }
+        result.push_str(&text[*p_start..*p_end]);
+        cursor = *p_end;
+    }
+    if cursor < text.len() {
+        result.push_str(&replace_in(&text[cursor..]));
+    }
+    result
+}
+
 impl McpServer {
     pub fn global_mode_router() -> rmcp::handler::server::tool::ToolRouter<Self> {
         Self::context_tools_router()
@@ -204,20 +262,30 @@ impl McpServer {
     }
 
     // Expands @tagname references in text by replacing them with tag content.
+    // Pipeline-state blocks delimited by <!-- PIPELINE-STATE-START --> and
+    // <!-- PIPELINE-STATE-END --> are preserved verbatim, so daemon-written
+    // state JSON containing @-prefixed tokens is never silently rewritten.
     async fn expand_tags(&self, text: &str) -> String {
         let tag_pattern = match Regex::new(r"@([^\s@]+)") {
             Ok(re) => re,
             Err(_) => return text.to_string(),
         };
 
-        let tag_names: Vec<String> = tag_pattern
-            .captures_iter(text)
-            .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        let protected = pipeline_state_protected_ranges(text);
 
-        if tag_names.is_empty() {
+        let mut has_candidate = false;
+        let mut cursor = 0usize;
+        for (p_start, p_end) in &protected {
+            if *p_start > cursor && tag_pattern.is_match(&text[cursor..*p_start]) {
+                has_candidate = true;
+                break;
+            }
+            cursor = *p_end;
+        }
+        if !has_candidate && cursor < text.len() && tag_pattern.is_match(&text[cursor..]) {
+            has_candidate = true;
+        }
+        if !has_candidate {
             return text.to_string();
         }
 
@@ -237,15 +305,7 @@ impl McpServer {
             .map(|t| (t.tag_name.as_str(), t.content.as_str()))
             .collect();
 
-        let result = tag_pattern.replace_all(text, |caps: &regex::Captures| {
-            let tag_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            match tag_map.get(tag_name) {
-                Some(content) => (*content).to_string(),
-                None => caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string(),
-            }
-        });
-
-        result.into_owned()
+        substitute_outside_protected(text, &tag_pattern, &tag_map, &protected)
     }
 
     // Resolves a project_id from an explicit parameter or falls back to context.
@@ -497,5 +557,114 @@ mod tests {
         let serialized = serde_json::to_value(&context).expect("context should serialize");
 
         assert!(serialized.get("orchestrator_session_id").is_none());
+    }
+
+    mod expand_tags_scoping {
+        use std::collections::HashMap;
+
+        use regex::Regex;
+
+        use super::super::{pipeline_state_protected_ranges, substitute_outside_protected};
+
+        fn pattern() -> Regex {
+            Regex::new(r"@([^\s@]+)").expect("regex compiles")
+        }
+
+        fn substitute(text: &str, map: &HashMap<&str, &str>) -> String {
+            let pat = pattern();
+            let protected = pipeline_state_protected_ranges(text);
+            substitute_outside_protected(text, &pat, map, &protected)
+        }
+
+        #[test]
+        fn protected_ranges_locate_a_single_block() {
+            let text = "x <!-- PIPELINE-STATE-START -->ABC<!-- PIPELINE-STATE-END --> y";
+            let ranges = pipeline_state_protected_ranges(text);
+            assert_eq!(ranges.len(), 1);
+            let (s, e) = ranges[0];
+            assert_eq!(
+                &text[s..e],
+                "<!-- PIPELINE-STATE-START -->ABC<!-- PIPELINE-STATE-END -->"
+            );
+        }
+
+        #[test]
+        fn substitution_works_outside_blocks() {
+            let mut map = HashMap::new();
+            map.insert("foo", "FOO");
+            map.insert("bar", "BAR");
+            assert_eq!(substitute("@foo and @bar", &map), "FOO and BAR");
+        }
+
+        #[test]
+        fn pipeline_state_block_is_preserved_verbatim() {
+            let mut map = HashMap::new();
+            map.insert("tag", "REPLACED");
+            let text = "before <!-- PIPELINE-STATE-START -->{\"@tag\":\"value\"}<!-- PIPELINE-STATE-END --> after @tag";
+            assert_eq!(
+                substitute(text, &map),
+                "before <!-- PIPELINE-STATE-START -->{\"@tag\":\"value\"}<!-- PIPELINE-STATE-END --> after REPLACED"
+            );
+        }
+
+        #[test]
+        fn substitution_immediately_adjacent_to_delimiters() {
+            let mut map = HashMap::new();
+            map.insert("before", "B4");
+            map.insert("after", "AFTR");
+            let text =
+                "@before<!-- PIPELINE-STATE-START -->protected<!-- PIPELINE-STATE-END -->@after";
+            assert_eq!(
+                substitute(text, &map),
+                "B4<!-- PIPELINE-STATE-START -->protected<!-- PIPELINE-STATE-END -->AFTR"
+            );
+        }
+
+        #[test]
+        fn missing_end_delimiter_protects_remainder() {
+            let mut map = HashMap::new();
+            map.insert("x", "X");
+            map.insert("stuff", "BOOM");
+            map.insert("y", "Y");
+            let text = "before @x <!-- PIPELINE-STATE-START -->@stuff continues to end @y";
+            assert_eq!(
+                substitute(text, &map),
+                "before X <!-- PIPELINE-STATE-START -->@stuff continues to end @y"
+            );
+        }
+
+        #[test]
+        fn multiple_state_blocks_are_each_preserved() {
+            let mut map = HashMap::new();
+            map.insert("a", "A");
+            map.insert("b", "B");
+            map.insert("c", "C");
+            map.insert("x", "NOPE");
+            map.insert("y", "NOPE");
+            let text = "@a <!-- PIPELINE-STATE-START -->@x<!-- PIPELINE-STATE-END --> mid @b <!-- PIPELINE-STATE-START -->@y<!-- PIPELINE-STATE-END --> @c";
+            assert_eq!(
+                substitute(text, &map),
+                "A <!-- PIPELINE-STATE-START -->@x<!-- PIPELINE-STATE-END --> mid B <!-- PIPELINE-STATE-START -->@y<!-- PIPELINE-STATE-END --> C"
+            );
+        }
+
+        #[test]
+        fn no_state_block_substitutes_normally() {
+            let mut map = HashMap::new();
+            map.insert("hello", "HI");
+            assert_eq!(substitute("plain @hello world", &map), "plain HI world");
+        }
+
+        #[test]
+        fn unknown_tags_outside_blocks_pass_through() {
+            let mut map = HashMap::new();
+            map.insert("known", "KNOWN");
+            assert_eq!(substitute("@unknown @known", &map), "@unknown KNOWN");
+        }
+
+        #[test]
+        fn empty_protected_ranges_for_text_without_blocks() {
+            assert!(pipeline_state_protected_ranges("no blocks here @tag").is_empty());
+        }
     }
 }
