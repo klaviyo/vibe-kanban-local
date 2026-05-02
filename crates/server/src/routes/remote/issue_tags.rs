@@ -5,11 +5,13 @@ use axum::{
     response::Json as ResponseJson,
     routing::get,
 };
+use db::models::issue_tag::IssueTag as IssueTagRow;
+use deployment::Deployment;
 use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListIssueTagsQuery {
@@ -29,34 +31,43 @@ async fn list_issue_tags(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListIssueTagsQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssueTagsResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.list_issue_tags(query.issue_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let rows = IssueTagRow::find_by_issue(pool, query.issue_id).await?;
+    let issue_tags: Vec<IssueTag> = rows.into_iter().map(IssueTag::from).collect();
+    Ok(ResponseJson(ApiResponse::success(ListIssueTagsResponse {
+        issue_tags,
+    })))
 }
 
 async fn get_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<IssueTag>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.get_issue_tag(issue_tag_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let row = IssueTagRow::find_by_id(pool, issue_tag_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Issue tag not found".to_string()))?;
+    Ok(ResponseJson(ApiResponse::success(IssueTag::from(row))))
 }
 
 async fn create_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateIssueTagRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueTag>>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.create_issue_tag(&request).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let id = request.id.unwrap_or_else(Uuid::new_v4);
+    let row = IssueTagRow::create(pool, id, &request).await?;
+    Ok(ResponseJson(ApiResponse::success(MutationResponse {
+        data: IssueTag::from(row),
+        txid: synthetic::txid(),
+    })))
 }
 
 async fn delete_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let client = deployment.remote_client()?;
-    client.delete_issue_tag(issue_tag_id).await?;
+    let pool = &deployment.db().pool;
+    IssueTagRow::delete(pool, issue_tag_id).await?;
     Ok(ResponseJson(ApiResponse::success(())))
 }

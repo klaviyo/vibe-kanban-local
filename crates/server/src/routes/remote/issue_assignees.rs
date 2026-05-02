@@ -7,11 +7,13 @@ use axum::{
     response::Json as ResponseJson,
     routing::get,
 };
+use db::models::issue_assignee::IssueAssignee as IssueAssigneeRow;
+use deployment::Deployment;
 use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListIssueAssigneesQuery {
@@ -34,34 +36,43 @@ async fn list_issue_assignees(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListIssueAssigneesQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssueAssigneesResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.list_issue_assignees(query.issue_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let rows = IssueAssigneeRow::find_by_issue(pool, query.issue_id).await?;
+    let issue_assignees: Vec<IssueAssignee> = rows.into_iter().map(IssueAssignee::from).collect();
+    Ok(ResponseJson(ApiResponse::success(
+        ListIssueAssigneesResponse { issue_assignees },
+    )))
 }
 
 async fn get_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Path(issue_assignee_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<IssueAssignee>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.get_issue_assignee(issue_assignee_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let row = IssueAssigneeRow::find_by_id(pool, issue_assignee_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Issue assignee not found".to_string()))?;
+    Ok(ResponseJson(ApiResponse::success(IssueAssignee::from(row))))
 }
 
 async fn create_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateIssueAssigneeRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueAssignee>>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.create_issue_assignee(&request).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let id = request.id.unwrap_or_else(Uuid::new_v4);
+    let row = IssueAssigneeRow::create(pool, id, &request).await?;
+    Ok(ResponseJson(ApiResponse::success(MutationResponse {
+        data: IssueAssignee::from(row),
+        txid: synthetic::txid(),
+    })))
 }
 
 async fn delete_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Path(issue_assignee_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let client = deployment.remote_client()?;
-    client.delete_issue_assignee(issue_assignee_id).await?;
+    let pool = &deployment.db().pool;
+    IssueAssigneeRow::delete(pool, issue_assignee_id).await?;
     Ok(ResponseJson(ApiResponse::success(())))
 }

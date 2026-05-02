@@ -20,7 +20,6 @@ pub mod host_relay;
 pub mod oauth;
 pub mod organizations;
 pub mod preview;
-pub mod relay_auth;
 pub mod releases;
 pub mod remote;
 pub mod repo;
@@ -67,8 +66,12 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         ))
         .with_state(deployment.clone());
 
+    // In local mode there is no cloud relay_auth router to merge, but
+    // host_relay is still required: it powers peer-to-peer host proxying and
+    // the signed `/open-remote-editor` endpoint used when the local app pairs
+    // with another host. Merge it alongside the signed-route stack so the
+    // Origin validation and error-logging layers cover both.
     let api_routes = Router::new()
-        .merge(relay_auth::router())
         .merge(host_relay::router(&deployment))
         .merge(relay_signed_routes)
         .layer(ValidateRequestHeaderLayer::custom(

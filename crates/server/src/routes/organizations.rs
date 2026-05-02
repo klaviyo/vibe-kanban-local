@@ -2,8 +2,9 @@ use api_types::{
     AcceptInvitationResponse, CreateInvitationRequest, CreateInvitationResponse,
     CreateOrganizationRequest, CreateOrganizationResponse, GetInvitationResponse,
     GetOrganizationResponse, ListInvitationsResponse, ListMembersResponse,
-    ListOrganizationsResponse, Organization, RevokeInvitationRequest, UpdateMemberRoleRequest,
-    UpdateMemberRoleResponse, UpdateOrganizationRequest,
+    ListOrganizationsResponse, Organization as WireOrganization, OrganizationMemberWithProfile,
+    RevokeInvitationRequest, UpdateMemberRoleRequest, UpdateMemberRoleResponse,
+    UpdateOrganizationRequest,
 };
 use axum::{
     Router,
@@ -12,11 +13,16 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, get, patch, post},
 };
+use db::models::{
+    organization::Organization,
+    organization_member::{MemberRole, OrganizationMember},
+    user::User,
+};
 use deployment::Deployment;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -50,40 +56,84 @@ pub fn router() -> Router<DeploymentImpl> {
 async fn list_organizations(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ListOrganizationsResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
+    let pool = &deployment.db().pool;
+    // Ensure the synthetic user + personal organization exist before listing.
+    synthetic::local_personal_organization(&deployment).await?;
 
-    let response = client.list_organizations().await?;
+    let user = synthetic::local_user(&deployment).await?;
+    let memberships = OrganizationMember::find_by_user(pool, user.id).await?;
 
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let mut organizations = Vec::with_capacity(memberships.len());
+    for member in memberships {
+        if let Some(org) = Organization::find_by_id(pool, member.organization_id).await? {
+            organizations.push(synthetic::organization_with_role(org, member.role));
+        }
+    }
+
+    Ok(ResponseJson(ApiResponse::success(
+        ListOrganizationsResponse { organizations },
+    )))
 }
 
 async fn get_organization(
     State(deployment): State<DeploymentImpl>,
     Path(id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<GetOrganizationResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
+    let pool = &deployment.db().pool;
 
-    let response = client.get_organization(id).await?;
+    let user = synthetic::local_user(&deployment).await?;
+    let organization = Organization::find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Organization not found".to_string()))?;
 
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let member = OrganizationMember::find(pool, id, user.id)
+        .await?
+        .ok_or_else(|| ApiError::Forbidden("Not a member of this organization".to_string()))?;
+
+    let user_role = match member.role {
+        MemberRole::Admin => "ADMIN".to_string(),
+        MemberRole::Member => "MEMBER".to_string(),
+    };
+
+    Ok(ResponseJson(ApiResponse::success(
+        GetOrganizationResponse {
+            organization: WireOrganization::from(organization),
+            user_role,
+        },
+    )))
 }
 
 async fn create_organization(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateOrganizationRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateOrganizationResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
+    let pool = &deployment.db().pool;
+    let user = synthetic::local_user(&deployment).await?;
 
-    let response = client.create_organization(&request).await?;
+    let org = Organization::create(pool, Uuid::new_v4(), &request).await?;
+
+    OrganizationMember::create(
+        pool,
+        &db::models::organization_member::CreateOrganizationMember {
+            organization_id: org.id,
+            user_id: user.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await?;
 
     deployment
         .track_if_analytics_allowed(
             "organization_created",
             serde_json::json!({
-                "org_id": response.organization.id.to_string(),
+                "org_id": org.id.to_string(),
             }),
         )
         .await;
+
+    let response = CreateOrganizationResponse {
+        organization: synthetic::organization_with_role(org, MemberRole::Admin),
+    };
 
     Ok(ResponseJson(ApiResponse::success(response)))
 }
@@ -92,114 +142,107 @@ async fn update_organization(
     State(deployment): State<DeploymentImpl>,
     Path(id): Path<Uuid>,
     Json(request): Json<UpdateOrganizationRequest>,
-) -> Result<ResponseJson<ApiResponse<Organization>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.update_organization(id, &request).await?;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+) -> Result<ResponseJson<ApiResponse<WireOrganization>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let updated = Organization::update(pool, id, &request).await?;
+    Ok(ResponseJson(ApiResponse::success(WireOrganization::from(
+        updated,
+    ))))
 }
 
 async fn delete_organization(
     State(deployment): State<DeploymentImpl>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let client = deployment.remote_client()?;
-
-    client.delete_organization(id).await?;
-
+    let pool = &deployment.db().pool;
+    Organization::delete(pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
+// Local mode does not support invitations; the table is omitted from the
+// schema. We keep the URL surface so any pre-existing client probe receives a
+// well-formed BadRequest instead of a 404 from the router.
+
 async fn create_invitation(
-    State(deployment): State<DeploymentImpl>,
-    Path(org_id): Path<Uuid>,
-    Json(request): Json<CreateInvitationRequest>,
+    State(_deployment): State<DeploymentImpl>,
+    Path(_org_id): Path<Uuid>,
+    Json(_request): Json<CreateInvitationRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateInvitationResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.create_invitation(org_id, &request).await?;
-
-    deployment
-        .track_if_analytics_allowed(
-            "invitation_created",
-            serde_json::json!({
-                "invitation_id": response.invitation.id.to_string(),
-                "org_id": org_id.to_string(),
-                "role": response.invitation.role,
-            }),
-        )
-        .await;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+    Err(ApiError::BadRequest(
+        "Invitations are not supported in local mode".to_string(),
+    ))
 }
 
 async fn list_invitations(
-    State(deployment): State<DeploymentImpl>,
-    Path(org_id): Path<Uuid>,
+    State(_deployment): State<DeploymentImpl>,
+    Path(_org_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<ListInvitationsResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.list_invitations(org_id).await?;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+    Err(ApiError::BadRequest(
+        "Invitations are not supported in local mode".to_string(),
+    ))
 }
 
 async fn get_invitation(
-    State(deployment): State<DeploymentImpl>,
-    Path(token): Path<String>,
+    State(_deployment): State<DeploymentImpl>,
+    Path(_token): Path<String>,
 ) -> Result<ResponseJson<ApiResponse<GetInvitationResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.get_invitation(&token).await?;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+    Err(ApiError::BadRequest(
+        "Invitations are not supported in local mode".to_string(),
+    ))
 }
 
 async fn revoke_invitation(
-    State(deployment): State<DeploymentImpl>,
-    Path(org_id): Path<Uuid>,
-    Json(payload): Json<RevokeInvitationRequest>,
+    State(_deployment): State<DeploymentImpl>,
+    Path(_org_id): Path<Uuid>,
+    Json(_payload): Json<RevokeInvitationRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let client = deployment.remote_client()?;
-
-    client
-        .revoke_invitation(org_id, payload.invitation_id)
-        .await?;
-
-    Ok(StatusCode::NO_CONTENT)
+    Err(ApiError::BadRequest(
+        "Invitations are not supported in local mode".to_string(),
+    ))
 }
 
 async fn accept_invitation(
-    State(deployment): State<DeploymentImpl>,
-    Path(invitation_token): Path<String>,
+    State(_deployment): State<DeploymentImpl>,
+    Path(_invitation_token): Path<String>,
 ) -> Result<ResponseJson<ApiResponse<AcceptInvitationResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.accept_invitation(&invitation_token).await?;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+    Err(ApiError::BadRequest(
+        "Invitations are not supported in local mode".to_string(),
+    ))
 }
 
 async fn list_members(
     State(deployment): State<DeploymentImpl>,
     Path(org_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<ListMembersResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
+    let pool = &deployment.db().pool;
+    let members = OrganizationMember::find_by_organization(pool, org_id).await?;
 
-    let response = client.list_members(org_id).await?;
+    let mut profiles: Vec<OrganizationMemberWithProfile> = Vec::with_capacity(members.len());
+    for member in members {
+        let user = User::find_by_id(pool, member.user_id).await?;
+        profiles.push(OrganizationMemberWithProfile {
+            user_id: member.user_id,
+            role: member.role.into(),
+            joined_at: member.joined_at,
+            first_name: user.as_ref().and_then(|u| u.first_name.clone()),
+            last_name: user.as_ref().and_then(|u| u.last_name.clone()),
+            username: user.as_ref().and_then(|u| u.username.clone()),
+            email: user.as_ref().map(|u| u.email.clone()),
+            avatar_url: None,
+        });
+    }
 
-    Ok(ResponseJson(ApiResponse::success(response)))
+    Ok(ResponseJson(ApiResponse::success(ListMembersResponse {
+        members: profiles,
+    })))
 }
 
 async fn remove_member(
     State(deployment): State<DeploymentImpl>,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let client = deployment.remote_client()?;
-
-    client.remove_member(org_id, user_id).await?;
-
+    let pool = &deployment.db().pool;
+    OrganizationMember::delete(pool, org_id, user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -208,9 +251,13 @@ async fn update_member_role(
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateMemberRoleRequest>,
 ) -> Result<ResponseJson<ApiResponse<UpdateMemberRoleResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let response = client.update_member_role(org_id, user_id, &request).await?;
-
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let role = MemberRole::from(request.role);
+    let updated = OrganizationMember::update_role(pool, org_id, user_id, role).await?;
+    Ok(ResponseJson(ApiResponse::success(
+        UpdateMemberRoleResponse {
+            user_id: updated.user_id,
+            role: updated.role.into(),
+        },
+    )))
 }

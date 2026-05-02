@@ -336,9 +336,9 @@ export type OpenEditorRequest = { editor_type: string | null, file_path: string 
 
 export type OpenEditorResponse = { url: string | null, };
 
-export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
-
 export type OpenRemoteWorkspaceInEditorRequest = { host_id: string, workspace_id: string, editor_type: string | null, file_path: string | null, };
+
+export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
 
 export type PairRelayHostRequest = { host_id: string, host_name: string, enrollment_code: string, };
 
@@ -383,10 +383,6 @@ export type PrError = { "type": "cli_not_installed", provider: ProviderKind, } |
 export type RunScriptError = { "type": "no_script_configured" } | { "type": "process_already_running" };
 
 export type AssociateWorkspaceAttachmentsRequest = { attachment_ids: Array<string>, };
-
-export type ImportIssueAttachmentsRequest = { issue_id: string, };
-
-export type ImportIssueAttachmentsResponse = { attachment_ids: Array<string>, };
 
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
 
