@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueRelationshipRequest, IssueRelationship, ListIssueRelationshipsQuery,
-    ListIssueRelationshipsResponse, MutationResponse,
+    CreateIssueRelationshipRequest, IssueRelationship, ListIssueRelationshipsResponse,
+    MutationResponse,
 };
 use axum::{
     Router,
@@ -8,10 +8,17 @@ use axum::{
     response::Json as ResponseJson,
     routing::get,
 };
+use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
+
+#[derive(Debug, Deserialize)]
+pub(super) struct ListIssueRelationshipsQuery {
+    pub issue_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+}
 
 pub(super) fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -30,7 +37,15 @@ async fn list_issue_relationships(
     Query(query): Query<ListIssueRelationshipsQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssueRelationshipsResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    let response = client.list_issue_relationships(query.issue_id).await?;
+    let response = match (query.project_id, query.issue_id) {
+        (Some(project_id), _) => client.list_project_issue_relationships(project_id).await?,
+        (None, Some(issue_id)) => client.list_issue_relationships(issue_id).await?,
+        (None, None) => {
+            return Err(ApiError::BadRequest(
+                "issue_id or project_id query parameter is required".into(),
+            ));
+        }
+    };
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 

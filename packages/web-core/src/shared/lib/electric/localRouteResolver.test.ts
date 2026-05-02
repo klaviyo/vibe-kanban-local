@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ShapeDefinition } from 'shared/remote-types';
+import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import {
   buildLocalShapePath,
+  resolveLocalMutationRoute,
   resolveLocalShapeRoute,
 } from './localRouteResolver';
 
@@ -15,6 +16,12 @@ function defineShape(
     url: '/v1/shape/test',
     fallbackUrl: '/v1/fallback/test',
   } as ShapeDefinition<unknown>;
+}
+
+function defineMutation(
+  url: string
+): MutationDefinition<unknown, unknown, unknown> {
+  return { name: 'Test', url } as MutationDefinition<unknown, unknown, unknown>;
 }
 
 describe('resolveLocalShapeRoute', () => {
@@ -62,6 +69,77 @@ describe('resolveLocalShapeRoute', () => {
     // non-project_id key, we must not silently route it to the local route.
     expect(
       resolveLocalShapeRoute(defineShape('issues', ['user_id']))
+    ).toBeNull();
+  });
+
+  it('maps project-keyed kanban-board shapes to /api/remote/* counterparts', () => {
+    const cases: Array<[string, string]> = [
+      ['issue_assignees', '/api/remote/issue-assignees'],
+      ['issue_tags', '/api/remote/issue-tags'],
+      ['issue_relationships', '/api/remote/issue-relationships'],
+      ['pull_requests', '/api/remote/pull-requests'],
+      ['pull_request_issues', '/api/remote/pull-request-issues'],
+    ];
+    for (const [table, path] of cases) {
+      expect(
+        resolveLocalShapeRoute(defineShape(table, ['project_id']))?.path
+      ).toBe(path);
+    }
+  });
+
+  it('maps both project- and user-keyed workspaces to /api/remote/workspaces', () => {
+    const projectRoute = resolveLocalShapeRoute(
+      defineShape('workspaces', ['project_id'])
+    );
+    expect(projectRoute).toEqual({
+      path: '/api/remote/workspaces',
+      query: ['project_id'],
+    });
+    const userRoute = resolveLocalShapeRoute(
+      defineShape('workspaces', ['owner_user_id'])
+    );
+    expect(userRoute).toEqual({
+      path: '/api/remote/workspaces',
+      query: ['owner_user_id'],
+    });
+  });
+
+  it('falls back to the issue-keyed local variant when no project_id is on the shape', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('issue_assignees', ['issue_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/issue-assignees',
+      query: ['issue_id'],
+    });
+  });
+});
+
+describe('resolveLocalMutationRoute', () => {
+  it('maps the issue/assignee/tag/relationship mutations to /api/remote/* paths', () => {
+    expect(resolveLocalMutationRoute(defineMutation('/v1/issues'))).toEqual({
+      path: '/api/remote/issues',
+    });
+    expect(
+      resolveLocalMutationRoute(defineMutation('/v1/issue_assignees'))
+    ).toEqual({ path: '/api/remote/issue-assignees' });
+    expect(resolveLocalMutationRoute(defineMutation('/v1/issue_tags'))).toEqual(
+      { path: '/api/remote/issue-tags' }
+    );
+    expect(
+      resolveLocalMutationRoute(defineMutation('/v1/issue_relationships'))
+    ).toEqual({ path: '/api/remote/issue-relationships' });
+  });
+
+  it('returns null for mutations without a local counterpart', () => {
+    expect(
+      resolveLocalMutationRoute(defineMutation('/v1/projects'))
+    ).toBeNull();
+    expect(
+      resolveLocalMutationRoute(defineMutation('/v1/issue_comments'))
+    ).toBeNull();
+    expect(
+      resolveLocalMutationRoute(defineMutation('/v1/pull_request_issues'))
     ).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import type { ShapeDefinition } from 'shared/remote-types';
+import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 
 export interface LocalShapeRoute {
   /** Path under `/api/remote/*` (host scoping is applied by `makeLocalApiRequest`). */
@@ -7,27 +7,52 @@ export interface LocalShapeRoute {
   query: readonly string[];
 }
 
-// Shape-table -> local /api/remote/* descriptor. Only shapes with a clean
-// 1:1 mapping to an existing local route are listed here; reads for other
-// shapes still go through the remote fallback URL until matching local
-// routes are added. Keys must match the shape's `table`, and entries must
-// only declare params the matching shape exposes — see
-// crates/server/src/routes/remote/*.rs for the route handlers and the
-// generated definitions in shared/remote-types.ts for the shape params.
-const LOCAL_ROUTE_BY_TABLE: Record<
-  string,
-  { path: string; expectedParams: readonly string[] }
-> = {
-  projects: {
-    path: '/api/remote/projects',
-    expectedParams: ['organization_id'],
-  },
-  issues: { path: '/api/remote/issues', expectedParams: ['project_id'] },
-  project_statuses: {
-    path: '/api/remote/project-statuses',
-    expectedParams: ['project_id'],
-  },
-  tags: { path: '/api/remote/tags', expectedParams: ['project_id'] },
+interface LocalRouteVariant {
+  path: string;
+  /**
+   * Params required on the shape for this variant to match. The first variant
+   * whose `expectedParams` are all declared by the shape wins.
+   */
+  expectedParams: readonly string[];
+}
+
+// Shape-table -> ordered list of local /api/remote/* descriptors. Multiple
+// variants per table support shapes that share a row type but different
+// scoping params (e.g., `workspaces` keyed by project_id vs owner_user_id).
+// The matching local route handlers in crates/server/src/routes/remote/*.rs
+// dispatch on which query param is present.
+const LOCAL_ROUTES_BY_TABLE: Record<string, readonly LocalRouteVariant[]> = {
+  projects: [
+    { path: '/api/remote/projects', expectedParams: ['organization_id'] },
+  ],
+  issues: [{ path: '/api/remote/issues', expectedParams: ['project_id'] }],
+  project_statuses: [
+    { path: '/api/remote/project-statuses', expectedParams: ['project_id'] },
+  ],
+  tags: [{ path: '/api/remote/tags', expectedParams: ['project_id'] }],
+  issue_assignees: [
+    { path: '/api/remote/issue-assignees', expectedParams: ['project_id'] },
+    { path: '/api/remote/issue-assignees', expectedParams: ['issue_id'] },
+  ],
+  issue_tags: [
+    { path: '/api/remote/issue-tags', expectedParams: ['project_id'] },
+    { path: '/api/remote/issue-tags', expectedParams: ['issue_id'] },
+  ],
+  issue_relationships: [
+    { path: '/api/remote/issue-relationships', expectedParams: ['project_id'] },
+    { path: '/api/remote/issue-relationships', expectedParams: ['issue_id'] },
+  ],
+  pull_requests: [
+    { path: '/api/remote/pull-requests', expectedParams: ['project_id'] },
+    { path: '/api/remote/pull-requests', expectedParams: ['issue_id'] },
+  ],
+  pull_request_issues: [
+    { path: '/api/remote/pull-request-issues', expectedParams: ['project_id'] },
+  ],
+  workspaces: [
+    { path: '/api/remote/workspaces', expectedParams: ['project_id'] },
+    { path: '/api/remote/workspaces', expectedParams: ['owner_user_id'] },
+  ],
 };
 
 /**
@@ -39,15 +64,14 @@ const LOCAL_ROUTE_BY_TABLE: Record<
 export function resolveLocalShapeRoute(
   shape: ShapeDefinition<unknown>
 ): LocalShapeRoute | null {
-  const entry = LOCAL_ROUTE_BY_TABLE[shape.table];
-  if (!entry) return null;
-  // Guard against shape/route param drift: every expected param must be
-  // declared on the shape (e.g., the project-keyed PROJECT_ISSUES_SHAPE,
-  // not a hypothetical user-keyed `issues` shape).
-  for (const key of entry.expectedParams) {
-    if (!shape.params.includes(key)) return null;
+  const variants = LOCAL_ROUTES_BY_TABLE[shape.table];
+  if (!variants) return null;
+  for (const variant of variants) {
+    if (variant.expectedParams.every((key) => shape.params.includes(key))) {
+      return { path: variant.path, query: variant.expectedParams };
+    }
   }
-  return { path: entry.path, query: entry.expectedParams };
+  return null;
 }
 
 /**
@@ -65,4 +89,37 @@ export function buildLocalShapePath(
   }
   const qs = search.toString();
   return qs ? `${route.path}?${qs}` : route.path;
+}
+
+export interface LocalMutationRoute {
+  /** Base local path (no trailing slash, no id). */
+  path: string;
+}
+
+// Mutation URL -> local /api/remote/* base path. Mutations whose remote URL
+// is not listed here continue to go through `makeRequest()` until matching
+// local routes land. POST hits the base path; PATCH/DELETE append `/{id}`;
+// bulk update appends `/bulk`. The handlers in crates/server/src/routes/remote
+// own the supported (POST, PATCH, DELETE) verbs for each path; transports
+// that don't yet exist locally are intentionally not mapped here so the
+// caller falls back to the cloud client rather than mixing transports for a
+// single feature.
+const LOCAL_MUTATION_ROUTE_BY_URL: Record<string, LocalMutationRoute> = {
+  '/v1/issues': { path: '/api/remote/issues' },
+  '/v1/issue_assignees': { path: '/api/remote/issue-assignees' },
+  '/v1/issue_tags': { path: '/api/remote/issue-tags' },
+  '/v1/issue_relationships': { path: '/api/remote/issue-relationships' },
+};
+
+/**
+ * Resolve the local `/api/remote/*` base path for a mutation, if one exists.
+ *
+ * Returns `null` when the mutation has no local counterpart, signalling that
+ * the caller should fall back to the remote `mutation.url` path through the
+ * cloud client.
+ */
+export function resolveLocalMutationRoute(
+  mutation: MutationDefinition<unknown, unknown, unknown>
+): LocalMutationRoute | null {
+  return LOCAL_MUTATION_ROUTE_BY_URL[mutation.url] ?? null;
 }

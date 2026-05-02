@@ -17,7 +17,9 @@ import type {
 } from '@/shared/lib/electric/types';
 import {
   buildLocalShapePath,
+  resolveLocalMutationRoute,
   resolveLocalShapeRoute,
+  type LocalMutationRoute,
 } from '@/shared/lib/electric/localRouteResolver';
 
 // Type helpers for extracting types from MutationDefinition
@@ -175,6 +177,44 @@ async function fetchShapeData<T extends Row>(
   return rows as T[];
 }
 
+// Local routes wrap responses in an `ApiResponse` envelope; cloud routes do
+// not. Returns the transport function and the resolved path for a mutation
+// verb so callers don't have to re-check `localRoute` themselves.
+function mutationTransport(
+  localRoute: LocalMutationRoute | null,
+  baseUrl: string,
+  suffix: string
+): {
+  url: string;
+  send: (url: string, init: RequestInit) => Promise<Response>;
+} {
+  if (localRoute) {
+    return {
+      url: suffix ? `${localRoute.path}${suffix}` : localRoute.path,
+      send: makeLocalApiRequest,
+    };
+  }
+  return {
+    url: suffix ? `${baseUrl}${suffix}` : baseUrl,
+    send: makeRequest,
+  };
+}
+
+// Extract a created/updated row from a mutation response. Both transports
+// return `MutationResponse<T> = { data: T, txid }`; local routes additionally
+// wrap that in an `ApiResponse` envelope (`{ success, data: ... }`). Strip
+// the envelope when present, then read the row out of `MutationResponse`.
+function extractMutationRow<T>(payload: unknown): T {
+  const inner =
+    payload && typeof payload === 'object' && 'success' in payload
+      ? ((payload as { data?: unknown }).data ?? null)
+      : payload;
+  if (inner && typeof inner === 'object' && 'data' in inner) {
+    return (inner as { data: T }).data;
+  }
+  return inner as T;
+}
+
 /**
  * Hook for subscribing to a remote collection's data via React Query,
  * with optional optimistic mutation support.
@@ -274,6 +314,10 @@ export function useShape<
 
   const mutationUrl = mutation?.url;
   const mutationName = mutation?.name;
+  const localMutationRoute = useMemo(
+    () => (mutation ? resolveLocalMutationRoute(mutation) : null),
+    [mutation]
+  );
 
   const writeOptimistic = useCallback(
     (updater: (rows: T[]) => T[]): T[] | undefined => {
@@ -298,7 +342,8 @@ export function useShape<
           'insert called without a mutation definition on useShape'
         );
       }
-      const response = await makeRequest(mutationUrl, {
+      const transport = mutationTransport(localMutationRoute, mutationUrl, '');
+      const response = await transport.send(transport.url, {
         method: 'POST',
         body: JSON.stringify(row),
       });
@@ -309,9 +354,7 @@ export function useShape<
         );
         throw new HttpError(response.status, message);
       }
-      const payload = (await response.json()) as { data: T } | T;
-      const created = (payload as { data?: T }).data ?? (payload as T);
-      return created;
+      return extractMutationRow<T>(await response.json());
     },
     onMutate: async (row) => {
       await queryClient.cancelQueries({ queryKey });
@@ -361,7 +404,12 @@ export function useShape<
           'update called without a mutation definition on useShape'
         );
       }
-      const response = await makeRequest(`${mutationUrl}/${id}`, {
+      const transport = mutationTransport(
+        localMutationRoute,
+        mutationUrl,
+        `/${id}`
+      );
+      const response = await transport.send(transport.url, {
         method: 'PATCH',
         body: JSON.stringify(changes),
       });
@@ -373,8 +421,7 @@ export function useShape<
         throw new HttpError(response.status, message);
       }
       try {
-        const payload = (await response.json()) as { data?: T } | T;
-        return (payload as { data?: T }).data ?? (payload as T);
+        return extractMutationRow<T>(await response.json());
       } catch {
         return null;
       }
@@ -414,7 +461,12 @@ export function useShape<
       }
       if (updates.length === 0) return;
       const body = updates.map((u) => ({ id: u.id, ...u.changes }));
-      const response = await makeRequest(`${mutationUrl}/bulk`, {
+      const transport = mutationTransport(
+        localMutationRoute,
+        mutationUrl,
+        '/bulk'
+      );
+      const response = await transport.send(transport.url, {
         method: 'POST',
         body: JSON.stringify({ updates: body }),
       });
@@ -461,7 +513,12 @@ export function useShape<
           'remove called without a mutation definition on useShape'
         );
       }
-      const response = await makeRequest(`${mutationUrl}/${id}`, {
+      const transport = mutationTransport(
+        localMutationRoute,
+        mutationUrl,
+        `/${id}`
+      );
+      const response = await transport.send(transport.url, {
         method: 'DELETE',
       });
       if (!response.ok) {
