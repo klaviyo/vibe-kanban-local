@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use axum::{
     Router,
-    extract::{Query, State, ws::Message},
+    extract::{
+        Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     response::IntoResponse,
     routing::get,
 };
@@ -12,11 +15,7 @@ use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    DeploymentImpl,
-    error::ApiError,
-    middleware::signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
-};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 struct TerminalQuery {
@@ -50,7 +49,7 @@ enum TerminalMessage {
 }
 
 async fn terminal_ws(
-    ws: SignedWsUpgrade,
+    ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<TerminalQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -93,7 +92,7 @@ async fn terminal_ws(
 }
 
 async fn handle_terminal_ws(
-    mut socket: MaybeSignedWebSocket,
+    mut socket: WebSocket,
     deployment: DeploymentImpl,
     working_dir: PathBuf,
     cols: u16,
@@ -136,7 +135,7 @@ async fn handle_terminal_ws(
             }
             inbound = socket.recv() => {
                 match inbound {
-                    Ok(Some(Message::Text(text))) => {
+                    Some(Ok(Message::Text(text))) => {
                         if let Ok(cmd) = serde_json::from_str::<TerminalCommand>(text.as_str()) {
                             match cmd {
                                 TerminalCommand::Input { data } => {
@@ -150,10 +149,10 @@ async fn handle_terminal_ws(
                             }
                         }
                     }
-                    Ok(Some(Message::Close(_))) => break,
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(error) => {
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => {}
+                    None => break,
+                    Some(Err(error)) => {
                         tracing::warn!("terminal WS receive error: {}", error);
                         break;
                     }
@@ -165,7 +164,7 @@ async fn handle_terminal_ws(
     let _ = deployment.pty().close_session(session_id).await;
 }
 
-async fn send_error(socket: &mut MaybeSignedWebSocket, message: &str) -> anyhow::Result<()> {
+async fn send_error(socket: &mut WebSocket, message: &str) -> anyhow::Result<()> {
     let msg = TerminalMessage::Error {
         message: message.to_string(),
     };

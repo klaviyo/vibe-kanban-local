@@ -1,7 +1,10 @@
 use anyhow;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, State, ws::Message},
+    extract::{
+        Path, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     middleware::from_fn_with_state,
     response::{IntoResponse, Json as ResponseJson},
     routing::{get, post},
@@ -18,12 +21,7 @@ use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl,
-    error::ApiError,
-    middleware::{
-        load_execution_process_middleware,
-        signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
-    },
+    DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware,
 };
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +40,7 @@ async fn get_execution_process_by_id(
 }
 
 async fn stream_raw_logs_ws(
-    ws: SignedWsUpgrade,
+    ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Path(exec_id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -58,7 +56,7 @@ async fn stream_raw_logs_ws(
 }
 
 async fn handle_raw_logs_ws(
-    mut socket: MaybeSignedWebSocket,
+    mut socket: WebSocket,
     deployment: DeploymentImpl,
     exec_id: Uuid,
 ) -> anyhow::Result<()> {
@@ -121,10 +119,10 @@ async fn handle_raw_logs_ws(
             }
             inbound = socket.recv() => {
                 match inbound {
-                    Ok(Some(Message::Close(_))) => break,
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(_) => break,
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => {}
+                    None => break,
+                    Some(Err(_)) => break,
                 }
             }
         }
@@ -136,7 +134,7 @@ async fn handle_raw_logs_ws(
 }
 
 async fn stream_normalized_logs_ws(
-    ws: SignedWsUpgrade,
+    ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Path(exec_id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -166,7 +164,7 @@ async fn stream_normalized_logs_ws(
 }
 
 async fn handle_normalized_logs_ws(
-    mut socket: MaybeSignedWebSocket,
+    mut socket: WebSocket,
     stream: impl futures_util::Stream<Item = anyhow::Result<LogMsg>> + Unpin + Send + 'static,
 ) -> anyhow::Result<()> {
     let mut stream = stream.map_ok(|msg| msg.to_ws_message_unchecked());
@@ -188,10 +186,10 @@ async fn handle_normalized_logs_ws(
             }
             inbound = socket.recv() => {
                 match inbound {
-                    Ok(Some(Message::Close(_))) => break,
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(_) => break,
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => {}
+                    None => break,
+                    Some(Err(_)) => break,
                 }
             }
         }
@@ -213,7 +211,7 @@ async fn stop_execution_process(
 }
 
 async fn stream_execution_processes_by_session_ws(
-    ws: SignedWsUpgrade,
+    ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<SessionExecutionProcessQuery>,
 ) -> impl IntoResponse {
@@ -232,7 +230,7 @@ async fn stream_execution_processes_by_session_ws(
 }
 
 async fn handle_execution_processes_by_session_ws(
-    mut socket: MaybeSignedWebSocket,
+    mut socket: WebSocket,
     deployment: DeploymentImpl,
     session_id: uuid::Uuid,
     show_soft_deleted: bool,
@@ -262,10 +260,10 @@ async fn handle_execution_processes_by_session_ws(
             }
             inbound = socket.recv() => {
                 match inbound {
-                    Ok(Some(Message::Close(_))) => break,
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(_) => break,
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => {}
+                    None => break,
+                    Some(Err(_)) => break,
                 }
             }
         }
