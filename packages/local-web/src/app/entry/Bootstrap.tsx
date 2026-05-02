@@ -16,6 +16,9 @@ import '@/shared/types/modals';
 import { queryClient } from '@/shared/lib/queryClient';
 import { isTauriApp } from '@/shared/lib/platform';
 import { initZoom, zoomIn, zoomOut, zoomReset } from '@/shared/lib/zoom';
+import { purgePriorElectricCacheOnce } from '@web/app/entry/cutoverCachePurge';
+
+purgePriorElectricCacheOnce();
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
