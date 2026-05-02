@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 
 import { makeRequest } from '@/shared/lib/remoteApi';
+import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
 import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import type {
@@ -14,6 +15,10 @@ import type {
   MutationResult,
   SyncError,
 } from '@/shared/lib/electric/types';
+import {
+  buildLocalShapePath,
+  resolveLocalShapeRoute,
+} from '@/shared/lib/electric/localRouteResolver';
 
 // Type helpers for extracting types from MutationDefinition
 type MutationCreateType<M> =
@@ -137,11 +142,16 @@ async function fetchShapeData<T extends Row>(
   shape: ShapeDefinition<T>,
   params: Record<string, string>
 ): Promise<T[]> {
-  const path = buildFallbackPath(shape.fallbackUrl, params);
-  const response = await makeRequest(path, {
-    method: 'GET',
-    cache: 'no-store',
-  });
+  const localRoute = resolveLocalShapeRoute(shape);
+  const response = localRoute
+    ? await makeLocalApiRequest(buildLocalShapePath(localRoute, params), {
+        method: 'GET',
+        cache: 'no-store',
+      })
+    : await makeRequest(buildFallbackPath(shape.fallbackUrl, params), {
+        method: 'GET',
+        cache: 'no-store',
+      });
 
   if (!response.ok) {
     const message = await parseErrorMessage(
@@ -152,7 +162,13 @@ async function fetchShapeData<T extends Row>(
   }
 
   const payload = (await response.json()) as Record<string, unknown>;
-  const rows = payload[shape.table];
+  // Local `/api/remote/*` routes wrap responses in an `ApiResponse`
+  // envelope; remote fallback routes return the table payload directly.
+  const root =
+    'success' in payload
+      ? ((payload as { data?: Record<string, unknown> }).data ?? {})
+      : payload;
+  const rows = root[shape.table];
   if (!Array.isArray(rows)) {
     throw new Error(`Response missing "${shape.table}" array`);
   }
