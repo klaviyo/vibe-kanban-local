@@ -1,14 +1,17 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::Type;
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::MemberRole;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "invitation_status", rename_all = "lowercase")
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "invitation_status", rename_all = "lowercase")]
 #[ts(use_ts_enum)]
 #[ts(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InvitationStatus {
@@ -18,7 +21,8 @@ pub enum InvitationStatus {
     Expired,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct Organization {
     pub id: Uuid,
     pub name: String,
@@ -29,7 +33,8 @@ pub struct Organization {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct OrganizationWithRole {
     pub id: Uuid,
     pub name: String,

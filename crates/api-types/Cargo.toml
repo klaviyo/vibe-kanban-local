@@ -8,6 +8,14 @@ chrono = { version = "0.4", features = ["serde"] }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "uuid", "chrono", "derive"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "uuid", "chrono", "derive"], optional = true }
 ts-rs = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[features]
+default = []
+# Legacy compatibility shim: enables sqlx::FromRow/Type derives on wire-shape
+# structs so existing Postgres-bound consumers (crates/remote, crates/relay-tunnel)
+# can keep using `query_as!(ApiType, ...)` without an intermediate row struct.
+# Default builds remain storage-agnostic.
+sqlx = ["dep:sqlx"]

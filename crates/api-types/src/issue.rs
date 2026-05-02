@@ -1,14 +1,17 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::Type;
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::some_if_present;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, TS)]
-#[sqlx(type_name = "issue_priority", rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "issue_priority", rename_all = "snake_case")
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IssuePriority {
     Urgent,
@@ -17,7 +20,8 @@ pub enum IssuePriority {
     Low,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct Issue {
     pub id: Uuid,
     pub project_id: Uuid,
