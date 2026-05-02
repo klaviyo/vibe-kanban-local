@@ -10,6 +10,3 @@ CREATE TABLE issue_comments (
     FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (parent_id) REFERENCES issue_comments(id) ON DELETE SET NULL
 );
-
-CREATE INDEX idx_issue_comments_issue_id ON issue_comments(issue_id);
-CREATE INDEX idx_issue_comments_parent_id ON issue_comments(parent_id);

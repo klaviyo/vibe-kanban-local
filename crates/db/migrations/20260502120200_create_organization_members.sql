@@ -11,9 +11,3 @@ CREATE TABLE organization_members (
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_organization_members_user
-    ON organization_members (user_id);
-
-CREATE INDEX idx_organization_members_org_role
-    ON organization_members (organization_id, role);

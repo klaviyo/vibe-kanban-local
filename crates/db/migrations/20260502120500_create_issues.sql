@@ -28,11 +28,3 @@ CREATE TABLE issues (
     FOREIGN KEY (parent_issue_id) REFERENCES issues(id) ON DELETE SET NULL,
     FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
-
-CREATE INDEX idx_issues_project_id ON issues(project_id);
-CREATE INDEX idx_issues_status_id ON issues(status_id);
-CREATE INDEX idx_issues_parent_issue_id ON issues(parent_issue_id);
-CREATE INDEX idx_issues_simple_id ON issues(simple_id);
-CREATE INDEX idx_issues_creator_user_id
-    ON issues(creator_user_id)
-    WHERE creator_user_id IS NOT NULL;

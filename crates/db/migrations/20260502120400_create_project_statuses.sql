@@ -8,6 +8,3 @@ CREATE TABLE project_statuses (
     created_at  TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_project_statuses_project_id
-    ON project_statuses (project_id);

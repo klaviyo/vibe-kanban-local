@@ -1,0 +1,2 @@
+ALTER TABLE projects
+    ADD COLUMN color TEXT NOT NULL DEFAULT '0 0% 0%';
