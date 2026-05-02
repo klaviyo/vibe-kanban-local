@@ -142,12 +142,6 @@ importers:
       '@sentry/vite-plugin':
         specifier: ^3.5.0
         version: 3.5.0
-      '@tanstack/electric-db-collection':
-        specifier: ^0.2.6
-        version: 0.2.6(typescript@5.9.2)
-      '@tanstack/react-db':
-        specifier: ^0.1.50
-        version: 0.1.50(react@18.3.1)(typescript@5.9.2)
       '@tanstack/react-form':
         specifier: ^1.23.8
         version: 1.23.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -703,12 +697,6 @@ importers:
       '@sentry/vite-plugin':
         specifier: ^3.5.0
         version: 3.5.0
-      '@tanstack/electric-db-collection':
-        specifier: ^0.2.6
-        version: 0.2.6(typescript@5.9.2)
-      '@tanstack/react-db':
-        specifier: ^0.1.50
-        version: 0.1.50(react@18.3.1)(typescript@5.9.2)
       '@tanstack/react-form':
         specifier: ^1.23.8
         version: 1.23.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1186,9 +1174,6 @@ packages:
       react: '>16.8.0'
       react-dom: '>16.8.0'
 
-  '@electric-sql/client@1.2.0':
-    resolution: {integrity: sha512-K/MEjti3UF4aPKJJqO6Tp4f5noqc2/3icU1NPdpKfQaHwbzGtEX2aJmL2vxTEUJbfyrISkPKbOPnrz/lAvw1Vg==}
-
   '@esbuild/aix-ppc64@0.27.2':
     resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
     engines: {node: '>=18'}
@@ -1562,9 +1547,6 @@ packages:
 
   '@mermaid-js/parser@1.0.1':
     resolution: {integrity: sha512-opmV19kN1JsK0T6HhhokHpcVkqKpF+x2pPDKKM2ThHtZAB5F4PROopk0amuVYK5qMrIA4erzpNm8gmPNJgMDxQ==}
-
-  '@microsoft/fetch-event-source@2.0.1':
-    resolution: {integrity: sha512-W6CLUJ2eBMw3Rec70qrsEW0jOm/3twwJv21mrmj2yORiaVmVYGS4sSS5yUwvQc1ZlDLYGPnClVWmUUMagKNsfA==}
 
   '@noble/curves@1.9.7':
     resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
@@ -2428,30 +2410,14 @@ packages:
   '@shikijs/vscode-textmate@10.0.2':
     resolution: {integrity: sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg==}
 
-  '@standard-schema/spec@1.0.0':
-    resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
-
   '@tailwindcss/container-queries@0.1.1':
     resolution: {integrity: sha512-p18dswChx6WnTSaJCSGx6lTmrGzNNvm2FtXmiO6AuA1V4U5REyoqwmT6kgAsIMdjo07QdAfYXHJ4hnMtfHzWgA==}
     peerDependencies:
       tailwindcss: '>=3.2.0'
 
-  '@tanstack/db-ivm@0.1.13':
-    resolution: {integrity: sha512-sBOWGY4tqMEym2ewjdWrDb5c5c8akvgnEbGVPAtkfFS3QVV0zfVb5RJAkAc8GSxb3ByVfYjyaShVr0kMJhMuow==}
-    peerDependencies:
-      typescript: '>=4.7'
-
-  '@tanstack/db@0.5.6':
-    resolution: {integrity: sha512-K6fYKCVp0abDoRDO+RScfmFOf00KNBtJXusFH+bBSc0LsbDxAjScph4fsX2pl6RPF74sh98IAQ6df2znlN09Iw==}
-    peerDependencies:
-      typescript: '>=4.7'
-
   '@tanstack/devtools-event-client@0.3.4':
     resolution: {integrity: sha512-eq+PpuutUyubXu+ycC1GIiVwBs86NF/8yYJJAKSpPcJLWl6R/761F1H4F/9ziX6zKezltFUH1ah3Cz8Ah+KJrw==}
     engines: {node: '>=18'}
-
-  '@tanstack/electric-db-collection@0.2.6':
-    resolution: {integrity: sha512-3J5mLxQ+PWwAxwsJy3Paygfd8dwUcs/oy1RxWjkIowRkYc1JA9x2/KSzX7ovzmYWbD87juHeLb73leuaWmqhow==}
 
   '@tanstack/form-core@1.24.4':
     resolution: {integrity: sha512-+eIR7DiDamit1zvTVgaHxuIRA02YFgJaXMUGxsLRJoBpUjGl/g/nhUocQoNkRyfXqOlh8OCMTanjwDprWSRq6w==}
@@ -2460,21 +2426,12 @@ packages:
     resolution: {integrity: sha512-xyIfof8eHBuub1CkBnbKNKQXeRZC4dClhmzePHVOEel4G7lk/dW+TQ16da7CFdeNLv6u6Owf5VoBQxoo6DFTSA==}
     engines: {node: '>=12'}
 
-  '@tanstack/pacer-lite@0.1.0':
-    resolution: {integrity: sha512-a5A0PI0H4npUy7u3VOjOhdynXnRBna+mDvpt8ghDCVzS3Tgn8DlGzHlRqS2rKJP8ZcLuVO2qxlIIblhcoaiv8Q==}
-    engines: {node: '>=18'}
-
   '@tanstack/pacer@0.15.4':
     resolution: {integrity: sha512-vGY+CWsFZeac3dELgB6UZ4c7OacwsLb8hvL2gLS6hTgy8Fl0Bm/aLokHaeDIP+q9F9HUZTnp360z9uv78eg8pg==}
     engines: {node: '>=18'}
 
   '@tanstack/query-core@5.85.5':
     resolution: {integrity: sha512-KO0WTob4JEApv69iYp1eGvfMSUkgw//IpMnq+//cORBzXf0smyRwPLrUvEe5qtAEGjwZTXrjxg+oJNP/C00t6w==}
-
-  '@tanstack/react-db@0.1.50':
-    resolution: {integrity: sha512-0AVEJlgLJKj1eW+Gfva1rGj9xFuk29RM0Cr+i8JpReN6gmlb/Uol68WJQ+CUfxHz6sPFoqPhJUywLRC9Q0SVWg==}
-    peerDependencies:
-      react: '>=16.8.0'
 
   '@tanstack/react-form@1.23.8':
     resolution: {integrity: sha512-ivfkiOHAI3aIWkCY4FnPWVAL6SkQWGWNVjtwIZpaoJE4ulukZWZ1KB8TQKs8f4STl+egjTsMHrWJuf2fv3Xh1w==}
@@ -3616,10 +3573,6 @@ packages:
   fraction.js@4.3.7:
     resolution: {integrity: sha512-ZsDfxO51wGAXREY55a7la9LScWpwv9RxIrYABrlvOFBlH/ShPnrtsXeuUIfXKKOVicNxQ+o8JTbJvjS4M89yew==}
 
-  fractional-indexing@3.2.0:
-    resolution: {integrity: sha512-PcOxmqwYCW7O2ovKRU8OoQQj2yqTfEB/yeTYk4gPid6dN5ODRfU1hXd9tTVZzax/0NkO7AxpHykvZnT1aYp/BQ==}
-    engines: {node: ^14.13.1 || >=16.0.0}
-
   framer-motion@12.23.24:
     resolution: {integrity: sha512-HMi5HRoRCTou+3fb3h9oTLyJGBxHfW+HnNE25tAXOvVx/IvwMHK0cx7IR4a2ZU6sh3IX1Z+4ts32PcYBOqka8w==}
     peerDependencies:
@@ -4704,9 +4657,6 @@ packages:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
     engines: {node: '>=8'}
 
-  sorted-btree@1.8.1:
-    resolution: {integrity: sha512-395+XIP+wqNn3USkFSrNz7G3Ss/MXlZEqesxvzCRFwL14h6e8LukDHdLBePn5pwbm5OQ9vGu8mDyz2lLDIqamQ==}
-
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
@@ -5503,12 +5453,6 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@electric-sql/client@1.2.0':
-    dependencies:
-      '@microsoft/fetch-event-source': 2.0.1
-    optionalDependencies:
-      '@rollup/rollup-darwin-arm64': 4.44.0
-
   '@esbuild/aix-ppc64@0.27.2':
     optional: true
 
@@ -5949,8 +5893,6 @@ snapshots:
   '@mermaid-js/parser@1.0.1':
     dependencies:
       langium: 4.2.1
-
-  '@microsoft/fetch-event-source@2.0.1': {}
 
   '@noble/curves@1.9.7':
     dependencies:
@@ -6840,37 +6782,11 @@ snapshots:
 
   '@shikijs/vscode-textmate@10.0.2': {}
 
-  '@standard-schema/spec@1.0.0': {}
-
   '@tailwindcss/container-queries@0.1.1(tailwindcss@3.4.17)':
     dependencies:
       tailwindcss: 3.4.17
 
-  '@tanstack/db-ivm@0.1.13(typescript@5.9.2)':
-    dependencies:
-      fractional-indexing: 3.2.0
-      sorted-btree: 1.8.1
-      typescript: 5.9.2
-
-  '@tanstack/db@0.5.6(typescript@5.9.2)':
-    dependencies:
-      '@standard-schema/spec': 1.0.0
-      '@tanstack/db-ivm': 0.1.13(typescript@5.9.2)
-      '@tanstack/pacer-lite': 0.1.0
-      typescript: 5.9.2
-
   '@tanstack/devtools-event-client@0.3.4': {}
-
-  '@tanstack/electric-db-collection@0.2.6(typescript@5.9.2)':
-    dependencies:
-      '@electric-sql/client': 1.2.0
-      '@standard-schema/spec': 1.0.0
-      '@tanstack/db': 0.5.6(typescript@5.9.2)
-      '@tanstack/store': 0.8.1
-      debug: 4.4.3
-    transitivePeerDependencies:
-      - supports-color
-      - typescript
 
   '@tanstack/form-core@1.24.4':
     dependencies:
@@ -6880,22 +6796,12 @@ snapshots:
 
   '@tanstack/history@1.154.14': {}
 
-  '@tanstack/pacer-lite@0.1.0': {}
-
   '@tanstack/pacer@0.15.4':
     dependencies:
       '@tanstack/devtools-event-client': 0.3.4
       '@tanstack/store': 0.7.7
 
   '@tanstack/query-core@5.85.5': {}
-
-  '@tanstack/react-db@0.1.50(react@18.3.1)(typescript@5.9.2)':
-    dependencies:
-      '@tanstack/db': 0.5.6(typescript@5.9.2)
-      react: 18.3.1
-      use-sync-external-store: 1.6.0(react@18.3.1)
-    transitivePeerDependencies:
-      - typescript
 
   '@tanstack/react-form@1.23.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -8192,8 +8098,6 @@ snapshots:
       signal-exit: 4.1.0
 
   fraction.js@4.3.7: {}
-
-  fractional-indexing@3.2.0: {}
 
   framer-motion@12.23.24(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -9532,8 +9436,6 @@ snapshots:
   simple-icons@15.18.0: {}
 
   slash@3.0.0: {}
-
-  sorted-btree@1.8.1: {}
 
   source-map-js@1.2.1: {}
 
