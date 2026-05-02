@@ -1,6 +1,9 @@
--- Issue-number / simple_id assignment is owned by application logic on this side;
--- the cloud's per-org atomic counter trigger has no SQLite equivalent, and the
--- schema-level uniqueness backstop on simple_id lands in a follow-up migration.
+-- Issue-number / simple_id assignment is owned by application logic on this side:
+-- the cloud's per-org atomic counter trigger relies on a postgres BEFORE INSERT
+-- trigger that mutates NEW, which SQLite triggers cannot do. The schema-level
+-- uniqueness backstop on simple_id is the unique index in the companion migration
+-- `..._idx_issues_simple_id.sql`, which mirrors the cloud's per-org uniqueness
+-- contract (simple_id encodes the org-scoped issue_prefix + counter).
 -- SQLite cannot extend a CHECK-enum in place: widening the `priority` set later
 -- requires the table-rebuild-and-copy migration pattern.
 CREATE TABLE issues (
