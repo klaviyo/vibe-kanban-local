@@ -209,6 +209,30 @@ fn generate_types_content() -> String {
         executors::model_selector::PermissionPolicy::decl(),
         executors::model_selector::ModelSelectorConfig::decl(),
         executors::executor_discovery::ExecutorDiscoveredOptions::decl(),
+        // Frontend-facing types whose backend code paths were removed but whose
+        // shared TypeScript exports the local-web/web-core packages still depend
+        // on. They are wired to routes that no longer exist; the matching
+        // frontend cleanup ships in a follow-up.
+        api_types::oauth::LoginStatus::decl(),
+        api_types::oauth::StatusResponse::decl(),
+        api_types::oauth::ProfileResponse::decl(),
+        api_types::oauth::ProviderProfile::decl(),
+        api_types::organization_member::MemberRole::decl(),
+        api_types::organizations::Organization::decl(),
+        api_types::organizations::OrganizationWithRole::decl(),
+        api_types::organizations::ListOrganizationsResponse::decl(),
+        api_types::organizations::CreateOrganizationRequest::decl(),
+        api_types::organizations::CreateOrganizationResponse::decl(),
+        api_types::organizations::Invitation::decl(),
+        api_types::organizations::InvitationStatus::decl(),
+        api_types::organizations::CreateInvitationRequest::decl(),
+        api_types::organizations::CreateInvitationResponse::decl(),
+        api_types::organizations::ListInvitationsResponse::decl(),
+        api_types::organizations::RevokeInvitationRequest::decl(),
+        api_types::organizations::OrganizationMemberWithProfile::decl(),
+        api_types::organizations::ListMembersResponse::decl(),
+        api_types::organizations::UpdateMemberRoleRequest::decl(),
+        api_types::organizations::UpdateMemberRoleResponse::decl(),
         serde_json::Value::decl(),
     ];
 
@@ -232,7 +256,79 @@ fn generate_types_content() -> String {
         serde_json::to_string(DEFAULT_COMMIT_REMINDER_PROMPT).unwrap()
     );
 
-    format!("{HEADER}\n\n{body}\n\n{constants}")
+    // Manual stub block. These types backed routes that were removed in
+    // SMS2-793 (cloud, relay, OAuth credential, analytics). Frontend modules
+    // still import them; the matching frontend cleanup ships in a follow-up.
+    const DEPRECATED_STUBS: &str = r#"// --- BEGIN deprecated stubs (SMS2-793 frontend cleanup pending) ---
+
+export type TokenResponse = { access_token: string, expires_at: string | null, };
+
+export type CurrentUserResponse = { user_id: string, };
+
+export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, };
+
+export type RelayPairedClient = { client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, };
+
+export type ListRelayPairedClientsResponse = { clients: Array<RelayPairedClient>, };
+
+export type RemoveRelayPairedClientResponse = { removed: boolean, };
+
+export type PairRelayHostRequest = { host_id: string, host_name: string, enrollment_code: string, };
+
+export type PairRelayHostResponse = { paired: boolean, };
+
+export type RelayPairedHost = { host_id: string, host_name: string | null, paired_at: string | null, };
+
+export type ListRelayPairedHostsResponse = { hosts: Array<RelayPairedHost>, };
+
+export type RemoveRelayPairedHostResponse = { removed: boolean, };
+
+export type StartSpake2EnrollmentRequest = { enrollment_code: string, client_message_b64: string, };
+
+export type StartSpake2EnrollmentResponse = { enrollment_id: string, server_message_b64: string, };
+
+export type FinishSpake2EnrollmentRequest = { enrollment_id: string, client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, public_key_b64: string, client_proof_b64: string, };
+
+export type FinishSpake2EnrollmentResponse = { signing_session_id: string, server_public_key_b64: string, server_proof_b64: string, };
+
+export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
+
+export type OpenRemoteWorkspaceInEditorRequest = { host_id: string, workspace_id: string, editor_type: string | null, file_path: string | null, };
+
+export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
+
+export type RelayWsMessageType = "text" | "binary" | "ping" | "pong" | "close";
+
+export type WsOpen = { conn_id: string, path: string, protocols?: string, };
+
+export type WsOpened = { conn_id: string, selected_protocol?: string, };
+
+export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType, payload_b64?: string, };
+
+export type WsClose = { conn_id: string, code?: number, reason?: string, };
+
+export type WsError = { conn_id: string, error: string, };
+
+export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> }, body_b64?: string, };
+
+export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> }, body_b64?: string, };
+
+export type DataChannelMessage =
+    | { type: "http_request" } & DataChannelRequest
+    | { type: "http_response" } & DataChannelResponse
+    | { type: "ws_open" } & WsOpen
+    | { type: "ws_opened" } & WsOpened
+    | { type: "ws_frame" } & WsFrame
+    | { type: "ws_close" } & WsClose
+    | { type: "ws_error" } & WsError;
+
+export type SdpOffer = { sdp: string, session_id: string, };
+
+export type SdpAnswer = { sdp: string, session_id: string, };
+
+// --- END deprecated stubs ---"#;
+
+    format!("{HEADER}\n\n{body}\n\n{DEPRECATED_STUBS}\n\n{constants}")
 }
 
 fn generate_json_schema<T: JsonSchema>() -> Result<String, serde_json::Error> {

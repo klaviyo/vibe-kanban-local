@@ -92,6 +92,9 @@ pub struct UserSystemInfo {
     /// Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
     pub capabilities: HashMap<String, Vec<BaseAgentCapability>>,
     pub preview_proxy_port: Option<u16>,
+    pub login_status: Option<api_types::LoginStatus>,
+    pub remote_auth_degraded: Option<String>,
+    pub shared_api_base: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -117,6 +120,9 @@ async fn get_user_system_info(
             caps
         },
         preview_proxy_port: deployment.client_info().get_preview_proxy_port(),
+        login_status: None,
+        remote_auth_degraded: None,
+        shared_api_base: None,
     };
 
     ResponseJson(ApiResponse::success(user_system_info))
