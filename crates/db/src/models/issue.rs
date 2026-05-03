@@ -365,7 +365,7 @@ impl From<Issue> for wire::Issue {
         Self {
             id: value.id,
             project_id: value.project_id,
-            issue_number: value.issue_number,
+            issue_number: value.issue_number as i32,
             simple_id: value.simple_id,
             status_id: value.status_id,
             title: value.title,

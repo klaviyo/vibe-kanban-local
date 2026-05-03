@@ -9,7 +9,7 @@ CREATE TYPE issue_priority AS ENUM ('urgent', 'high', 'medium', 'low');
 
 -- 2. MODIFY EXISTING ORGANIZATIONS TABLE
 -- Add issue_prefix for simple IDs (e.g., "BLO" from "Bloop")
-ALTER TABLE organizations ADD COLUMN IF NOT EXISTS issue_prefix VARCHAR(10) NOT NULL DEFAULT 'VK';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS issue_prefix VARCHAR(10) NOT NULL DEFAULT 'ISS';
 
 -- 3. MODIFY EXISTING PROJECTS TABLE
 -- Add color and updated_at columns, drop unused metadata column
