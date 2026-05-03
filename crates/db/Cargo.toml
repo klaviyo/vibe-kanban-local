@@ -21,7 +21,7 @@ strum = "0.27.2"
 strum_macros = "0.27.2"
 futures = "0.3.32"
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

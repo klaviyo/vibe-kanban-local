@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT organization_id as \"organization_id!: Uuid\",\n                      user_id         as \"user_id!: Uuid\",\n                      project_id      as \"project_id!: Uuid\",\n                      host_identity\n               FROM identity_seed_marker\n               WHERE id = 1",
+  "query": "SELECT organization_id as \"organization_id!: Uuid\",\n                      user_id         as \"user_id!: Uuid\",\n                      project_id      as \"project_id!: Uuid\",\n                      host_identity,\n                      host_label\n               FROM identity_seed_marker\n               WHERE id = 1",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "name": "host_identity",
         "ordinal": 3,
         "type_info": "Text"
+      },
+      {
+        "name": "host_label",
+        "ordinal": 4,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -31,8 +36,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "28c5663553b8db42c4a77b343862efa8855622650fe80733c19ea15f3c55cfbc"
+  "hash": "caf6a1be37cc1434c585e81ae784d72f4b947e15759c22bbcde3f08bc97e4964"
 }

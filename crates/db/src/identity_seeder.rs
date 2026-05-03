@@ -9,9 +9,14 @@
 //!
 //! On every subsequent launch the seeder is a strict no-op — the
 //! `identity_seed_marker` row records that seeding completed, and the deterministic
-//! UUID derivation is never re-run. If the host identity has changed since the
-//! last seed (host rename, machine clone), the seeder logs a structured warning
-//! and leaves the existing identity rows untouched.
+//! UUID derivation is never re-run. The marker tracks two distinct host fields:
+//! `host_identity` is the stable hardware-derived UUID source used to derive
+//! the deterministic UUIDs (intentionally insensitive to hostname changes), and
+//! `host_label` is the kernel hostname captured at seed time. A host rename is
+//! observed as a `host_label` mismatch and surfaces as a structured warning; a
+//! database moved to different hardware is observed as a `host_identity`
+//! mismatch and surfaces as a separate warning. In both cases the existing
+//! identity rows are left untouched.
 //!
 //! The seeder also performs an idempotent backfill of any pre-existing
 //! `projects` rows whose `organization_id` is still NULL, linking them to the
@@ -67,28 +72,37 @@ pub enum SeederError {
 pub struct IdentitySeeder<'a> {
     pool: &'a SqlitePool,
     host_identity: String,
+    host_label: String,
 }
 
 impl<'a> IdentitySeeder<'a> {
-    /// Build a seeder that uses the running host's stable identity source.
+    /// Build a seeder that uses the running host's stable identity source for
+    /// UUID derivation and the kernel hostname for the rename-sensitive label.
     /// Returns an error only if no platform identity source is available;
     /// callers should treat that as a deployment-fatal condition.
     pub fn new(pool: &'a SqlitePool) -> Result<Self, SeederError> {
         let host_identity = host_identity()?;
+        let host_label = host_label(&host_identity);
         Ok(Self {
             pool,
             host_identity,
+            host_label,
         })
     }
 
-    /// Build a seeder with an explicitly provided host identity. Intended for
-    /// tests so they can simulate first-launch and host-rename scenarios
-    /// without touching real OS identity sources.
+    /// Build a seeder with explicitly provided host identity and label.
+    /// Intended for tests so they can simulate first-launch, host-rename, and
+    /// hardware-move scenarios without touching real OS identity sources.
     #[cfg(test)]
-    pub fn with_host_identity(pool: &'a SqlitePool, host_identity: String) -> Self {
+    pub fn with_host_identity(
+        pool: &'a SqlitePool,
+        host_identity: String,
+        host_label: String,
+    ) -> Self {
         Self {
             pool,
             host_identity,
+            host_label,
         }
     }
 
@@ -110,7 +124,8 @@ impl<'a> IdentitySeeder<'a> {
             r#"SELECT organization_id as "organization_id!: Uuid",
                       user_id         as "user_id!: Uuid",
                       project_id      as "project_id!: Uuid",
-                      host_identity
+                      host_identity,
+                      host_label
                FROM identity_seed_marker
                WHERE id = 1"#
         )
@@ -119,14 +134,24 @@ impl<'a> IdentitySeeder<'a> {
 
         let outcome = match existing {
             Some(row) => {
+                if row.host_label != self.host_label {
+                    tracing::warn!(
+                        event = "identity_seeder.host_renamed",
+                        previous_host_label = %row.host_label,
+                        current_host_label = %self.host_label,
+                        organization_id = %row.organization_id,
+                        "Host label has changed since synthetic identity was seeded; \
+                         identity rows will be preserved as-is."
+                    );
+                }
                 if row.host_identity != self.host_identity {
                     tracing::warn!(
                         event = "identity_seeder.host_identity_changed",
                         previous_host_identity = %row.host_identity,
                         current_host_identity = %self.host_identity,
                         organization_id = %row.organization_id,
-                        "Host identity has changed since synthetic identity was seeded; \
-                         identity rows will be preserved as-is."
+                        "Host identity source has changed since synthetic identity was seeded \
+                         (database moved to different hardware); identity rows will be preserved as-is."
                     );
                 }
                 SeedOutcome::AlreadySeeded {
@@ -227,12 +252,13 @@ impl<'a> IdentitySeeder<'a> {
 
         sqlx::query!(
             r#"INSERT INTO identity_seed_marker
-                   (id, organization_id, user_id, project_id, host_identity)
-               VALUES (1, $1, $2, $3, $4)"#,
+                   (id, organization_id, user_id, project_id, host_identity, host_label)
+               VALUES (1, $1, $2, $3, $4, $5)"#,
             organization_id,
             user_id,
             project_id,
             self.host_identity,
+            self.host_label,
         )
         .execute(&mut **tx)
         .await?;
@@ -352,6 +378,48 @@ fn host_identity() -> Result<String, SeederError> {
     }
 }
 
+/// Resolve the rename-sensitive host label. Used only for the host-rename
+/// warning surface — UUID derivation keys off [`host_identity`] which is
+/// intentionally stable across hostname changes. On Unix this is the kernel
+/// hostname (changes when the operator renames the host); on Windows it is
+/// the COMPUTERNAME/HOSTNAME environment variable. Falls back to the host
+/// identity itself when no hostname can be read so the comparison still works
+/// — it just won't trigger on rename in that degenerate case.
+fn host_label(host_identity: &str) -> String {
+    #[cfg(unix)]
+    {
+        // POSIX caps hostnames at 255 bytes; allocate one extra for the NUL
+        // terminator that gethostname always writes when the buffer is large
+        // enough.
+        let mut buf = [0u8; 256];
+        // SAFETY: gethostname writes up to buf.len() bytes (NUL-terminated on
+        // success when the hostname fits) and reads no other memory. The
+        // pointer is valid for buf.len() bytes.
+        let rc = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) };
+        if rc == 0 {
+            let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+            if let Ok(s) = std::str::from_utf8(&buf[..len]) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(name) = hostname_string() {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    host_identity.to_string()
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn hostname_string() -> Option<String> {
     std::env::var("COMPUTERNAME")
@@ -388,7 +456,8 @@ mod tests {
     #[tokio::test]
     async fn first_launch_creates_singleton_rows_and_nine_statuses() {
         let pool = make_pool().await;
-        let seeder = IdentitySeeder::with_host_identity(&pool, "test-host-1".into());
+        let seeder =
+            IdentitySeeder::with_host_identity(&pool, "test-host-1".into(), "label-1".into());
         let outcome = seeder.run().await.unwrap();
 
         let SeedOutcome::FirstLaunch {
@@ -446,7 +515,8 @@ mod tests {
             r#"SELECT organization_id as "organization_id!: Uuid",
                       user_id         as "user_id!: Uuid",
                       project_id      as "project_id!: Uuid",
-                      host_identity
+                      host_identity,
+                      host_label
                FROM identity_seed_marker
                WHERE id = 1"#
         )
@@ -457,12 +527,14 @@ mod tests {
         assert_eq!(marker.user_id, user_id);
         assert_eq!(marker.project_id, project_id);
         assert_eq!(marker.host_identity, "test-host-1");
+        assert_eq!(marker.host_label, "label-1");
     }
 
     #[tokio::test]
     async fn second_run_is_strict_noop() {
         let pool = make_pool().await;
-        let seeder = IdentitySeeder::with_host_identity(&pool, "test-host-2".into());
+        let seeder =
+            IdentitySeeder::with_host_identity(&pool, "test-host-2".into(), "label-2".into());
         let first = seeder.run().await.unwrap();
         let SeedOutcome::FirstLaunch {
             organization_id,
@@ -497,25 +569,65 @@ mod tests {
 
     #[tokio::test]
     async fn host_rename_preserves_identity_rows() {
+        // Hostname rename: stable host_identity unchanged, host_label changes.
+        // This is the AC's documented warning surface.
         let pool = make_pool().await;
-        let first = IdentitySeeder::with_host_identity(&pool, "host-original".into())
-            .run()
-            .await
-            .unwrap();
-        let original_org = first.organization_id();
-
-        let renamed = IdentitySeeder::with_host_identity(&pool, "host-renamed".into())
-            .run()
-            .await
-            .unwrap();
-        assert_eq!(renamed.organization_id(), original_org);
-
-        let marker_host: String =
-            sqlx::query_scalar!("SELECT host_identity FROM identity_seed_marker WHERE id = 1")
-                .fetch_one(&pool)
+        let first =
+            IdentitySeeder::with_host_identity(&pool, "stable-id".into(), "host-original".into())
+                .run()
                 .await
                 .unwrap();
-        assert_eq!(marker_host, "host-original");
+        let original_org = first.organization_id();
+
+        let renamed =
+            IdentitySeeder::with_host_identity(&pool, "stable-id".into(), "host-renamed".into())
+                .run()
+                .await
+                .unwrap();
+        assert_eq!(renamed.organization_id(), original_org);
+
+        let marker = sqlx::query!(
+            r#"SELECT host_identity, host_label
+               FROM identity_seed_marker WHERE id = 1"#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        // Identity rows stay bit-stable on rename — both columns retain the
+        // first-launch values; the rename is reported via the warning log.
+        assert_eq!(marker.host_identity, "stable-id");
+        assert_eq!(marker.host_label, "host-original");
+    }
+
+    #[tokio::test]
+    async fn hardware_move_preserves_identity_rows() {
+        // Database moved to different hardware: host_identity changes (machine
+        // UUID is hardware-bound) while host_label may or may not change. The
+        // identity rows must still be preserved — the seeder warns and no-ops.
+        let pool = make_pool().await;
+        let first =
+            IdentitySeeder::with_host_identity(&pool, "machine-A".into(), "shared-name".into())
+                .run()
+                .await
+                .unwrap();
+        let original_org = first.organization_id();
+
+        let moved =
+            IdentitySeeder::with_host_identity(&pool, "machine-B".into(), "shared-name".into())
+                .run()
+                .await
+                .unwrap();
+        assert_eq!(moved.organization_id(), original_org);
+
+        let marker = sqlx::query!(
+            r#"SELECT host_identity, host_label
+               FROM identity_seed_marker WHERE id = 1"#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(marker.host_identity, "machine-A");
+        assert_eq!(marker.host_label, "shared-name");
     }
 
     #[tokio::test]
@@ -532,10 +644,11 @@ mod tests {
         .await
         .unwrap();
 
-        let outcome = IdentitySeeder::with_host_identity(&pool, "test-host-3".into())
-            .run()
-            .await
-            .unwrap();
+        let outcome =
+            IdentitySeeder::with_host_identity(&pool, "test-host-3".into(), "label-3".into())
+                .run()
+                .await
+                .unwrap();
         let synthetic_org = outcome.organization_id();
 
         let backfilled: Option<Uuid> = sqlx::query_scalar!(
@@ -549,7 +662,7 @@ mod tests {
         assert_eq!(backfilled, Some(synthetic_org));
 
         // Re-running must not perturb the backfill.
-        IdentitySeeder::with_host_identity(&pool, "test-host-3".into())
+        IdentitySeeder::with_host_identity(&pool, "test-host-3".into(), "label-3".into())
             .run()
             .await
             .unwrap();
@@ -568,11 +681,13 @@ mod tests {
     async fn deterministic_uuids_from_same_host_source() {
         let pool_a = make_pool().await;
         let pool_b = make_pool().await;
-        let a = IdentitySeeder::with_host_identity(&pool_a, "shared-host".into())
+        let a = IdentitySeeder::with_host_identity(&pool_a, "shared-host".into(), "label-a".into())
             .run()
             .await
             .unwrap();
-        let b = IdentitySeeder::with_host_identity(&pool_b, "shared-host".into())
+        // Same stable identity → same UUIDs even when the rename-sensitive
+        // label differs, because UUID derivation keys off host_identity only.
+        let b = IdentitySeeder::with_host_identity(&pool_b, "shared-host".into(), "label-b".into())
             .run()
             .await
             .unwrap();
@@ -600,7 +715,7 @@ mod tests {
     #[tokio::test]
     async fn marker_singleton_constraint_rejects_second_row() {
         let pool = make_pool().await;
-        IdentitySeeder::with_host_identity(&pool, "host".into())
+        IdentitySeeder::with_host_identity(&pool, "host".into(), "label".into())
             .run()
             .await
             .unwrap();
@@ -636,8 +751,8 @@ mod tests {
 
         let result = sqlx::query!(
             r#"INSERT INTO identity_seed_marker
-                   (id, organization_id, user_id, project_id, host_identity)
-               VALUES (2, $1, $2, $3, 'x')"#,
+                   (id, organization_id, user_id, project_id, host_identity, host_label)
+               VALUES (2, $1, $2, $3, 'x', 'y')"#,
             other_org,
             other_user,
             other_project,
