@@ -934,9 +934,18 @@ impl RemoteClient {
     pub async fn delete_issue_relationship(
         &self,
         relationship_id: Uuid,
-    ) -> Result<(), RemoteClientError> {
-        self.delete_authed(&format!("/v1/issue_relationships/{relationship_id}"))
+    ) -> Result<DeleteResponse, RemoteClientError> {
+        let res = self
+            .send(
+                reqwest::Method::DELETE,
+                &format!("/v1/issue_relationships/{relationship_id}"),
+                true,
+                None::<&()>,
+            )
+            .await?;
+        res.json::<DeleteResponse>()
             .await
+            .map_err(|e| RemoteClientError::Serde(e.to_string()))
     }
 
     // ── Remote Projects ─────────────────────────────────────────────────

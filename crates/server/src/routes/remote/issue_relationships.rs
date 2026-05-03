@@ -1,5 +1,5 @@
 use api_types::{
-    CreateIssueRelationshipRequest, IssueRelationship, ListIssueRelationshipsQuery,
+    CreateIssueRelationshipRequest, DeleteResponse, IssueRelationship, ListIssueRelationshipsQuery,
     ListIssueRelationshipsResponse, MutationResponse,
 };
 use axum::{
@@ -46,8 +46,8 @@ async fn create_issue_relationship(
 async fn delete_issue_relationship(
     State(deployment): State<DeploymentImpl>,
     Path(relationship_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    client.delete_issue_relationship(relationship_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = client.delete_issue_relationship(relationship_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
