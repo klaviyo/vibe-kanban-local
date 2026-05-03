@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_tags (id, issue_id, tag_id)\n               VALUES ($1, $2, $3)\n               RETURNING id       as \"id!: Uuid\",\n                         issue_id as \"issue_id!: Uuid\",\n                         tag_id   as \"tag_id!: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "tag_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6835c820fe976149681352318d2bad28b0171783db1ddd4db080f474d365715d"
+}
