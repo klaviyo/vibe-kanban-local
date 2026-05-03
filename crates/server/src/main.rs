@@ -3,12 +3,12 @@ use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    startup::perform_cleanup_actions,
 };
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
 use strip_ansi_escapes::strip;
 use thiserror::Error;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -201,7 +201,12 @@ async fn main() -> Result<(), VibeKanbanError> {
         }
     }
 
-    perform_cleanup_actions(&deployment, shutdown_token, vec![main_handle, proxy_handle]).await;
+    perform_cleanup_actions(
+        &deployment,
+        &shutdown_token,
+        vec![main_handle, proxy_handle],
+    )
+    .await;
 
     Ok(())
 }
@@ -242,75 +247,18 @@ pub async fn shutdown_signal() {
     }
 }
 
-/// Gracefully shut down the running server.
-///
-/// Cancels `shutdown_token` to begin axum's graceful shutdown, waits for
-/// in-flight HTTP handlers to drain, kills any running execution processes
-/// (which still need DB access), and finally drains the SQLx pool so in-flight
-/// transactions either commit or roll back cleanly. Errors from the process
-/// kill are logged rather than panicked so the pool drain still runs.
-pub async fn perform_cleanup_actions(
-    deployment: &DeploymentImpl,
-    shutdown_token: CancellationToken,
-    server_handles: Vec<JoinHandle<()>>,
-) {
-    drain_http_servers(&shutdown_token, server_handles).await;
-
-    if let Err(e) = deployment.container().kill_all_running_processes().await {
-        tracing::error!("Failed to cleanly kill running execution processes: {}", e);
-    }
-
-    // Close the pool last so that DB-backed cleanup above runs against a live
-    // pool; closing waits for in-flight transactions to release their
-    // connections, allowing SQLite to finalize and remove its rollback journal.
-    deployment.db().pool.close().await;
-}
-
-/// Cancels the shutdown token to start axum's graceful shutdown, then awaits
-/// the supplied server task handles so axum finishes draining in-flight
-/// requests before any DB-backed cleanup runs.
-async fn drain_http_servers(
-    shutdown_token: &CancellationToken,
-    server_handles: Vec<JoinHandle<()>>,
-) {
-    shutdown_token.cancel();
-
-    for handle in server_handles {
-        if let Err(e) = handle.await {
-            tracing::warn!("Server task ended with error: {}", e);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         path::PathBuf,
         str::FromStr,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
+        sync::Arc,
         time::{Duration, Instant},
     };
 
-    use sqlx::{
-        SqlitePool,
-        sqlite::{SqliteConnectOptions, SqliteJournalMode},
-    };
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use tempfile::TempDir;
     use tokio::sync::Notify;
-
-    use super::*;
-
-    async fn open_pool(path: &PathBuf) -> SqlitePool {
-        let url = format!("sqlite://{}", path.to_string_lossy());
-        let opts = SqliteConnectOptions::from_str(&url)
-            .unwrap()
-            .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete);
-        SqlitePool::connect_with(opts).await.unwrap()
-    }
 
     fn journal_path(db_path: &PathBuf) -> PathBuf {
         let mut name = db_path.file_name().unwrap().to_os_string();
@@ -370,68 +318,5 @@ mod tests {
             !journal_path(&db_path).exists(),
             "rollback journal should not remain next to the database file"
         );
-    }
-
-    #[tokio::test]
-    async fn drain_http_servers_cancels_token_and_awaits_handles() {
-        let token = CancellationToken::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let mut handles = Vec::new();
-        for _ in 0..2 {
-            let token = token.clone();
-            let counter = counter.clone();
-            handles.push(tokio::spawn(async move {
-                token.cancelled().await;
-                // Simulate axum's request-drain delay after cancellation.
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                counter.fetch_add(1, Ordering::SeqCst);
-            }));
-        }
-
-        drain_http_servers(&token, handles).await;
-
-        assert!(token.is_cancelled(), "shutdown token should be cancelled");
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            2,
-            "drain should await every server handle to completion"
-        );
-    }
-
-    #[tokio::test]
-    async fn drain_http_servers_swallows_panicking_server_handle() {
-        let token = CancellationToken::new();
-        let panicking = tokio::spawn(async { panic!("simulated server crash") });
-
-        // A panic in a server task must not prevent drain_http_servers from
-        // returning so DB-backed cleanup and the final pool drain still run.
-        drain_http_servers(&token, vec![panicking]).await;
-
-        assert!(token.is_cancelled(), "shutdown token should be cancelled");
-    }
-
-    #[tokio::test]
-    async fn drain_http_servers_returns_before_pool_close() {
-        // Order assertion: drain_http_servers does not touch the pool, so the
-        // pool remains live for any DB-backed cleanup that runs between
-        // drain_http_servers and the final pool.close().
-        let temp = TempDir::new().unwrap();
-        let db_path = temp.path().join("test.db");
-        let pool = open_pool(&db_path).await;
-
-        let token = CancellationToken::new();
-        drain_http_servers(&token, vec![]).await;
-
-        assert!(
-            !pool.is_closed(),
-            "pool must stay open so DB-backed cleanup can run before close"
-        );
-        sqlx::query("SELECT 1")
-            .execute(&pool)
-            .await
-            .expect("pool must accept queries after drain_http_servers");
-
-        pool.close().await;
     }
 }
