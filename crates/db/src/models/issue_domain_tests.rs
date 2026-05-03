@@ -30,6 +30,7 @@ use sqlx::{
 use uuid::Uuid;
 
 use super::{
+    invitation::{AcceptError, CreateInvitation, Invitation, InvitationStatus},
     issue::{CreateIssue, Issue, IssuePriority},
     issue_assignee::IssueAssignee,
     issue_comment::{CreateIssueComment, IssueComment},
@@ -724,4 +725,348 @@ async fn workspace_issue_link_rejects_unknown_issue() {
     )
     .await;
     assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Cutover contract paths (subtask 2.2). The handlers under crates/server now
+// rely on these helpers for the documented cloud-shape behaviour: atomic
+// status seeding at project-create, org-scoped issue short-IDs, invitation
+// accept, and singular workspace relink. The tests below pin those contracts.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn project_create_with_default_statuses_seeds_six_atomically() {
+    let pool = make_pool().await;
+    let org = Organization::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateOrganizationRequest {
+            name: "Acme".into(),
+            slug: "acme".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let project = ProjectRow::create_with_default_statuses(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: org.id,
+            name: "Acme Project".into(),
+            color: "#fff".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let statuses = ProjectStatus::find_by_project(&pool, project.id)
+        .await
+        .unwrap();
+    let names: Vec<String> = statuses.iter().map(|s| s.name.clone()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "Backlog",
+            "Todo",
+            "In Progress",
+            "In Review",
+            "Done",
+            "Cancelled"
+        ],
+        "default statuses must be seeded in the canonical order",
+    );
+    let cancelled = statuses.iter().find(|s| s.name == "Cancelled").unwrap();
+    assert!(
+        cancelled.hidden,
+        "Cancelled is the only hidden default status",
+    );
+    for (idx, status) in statuses.iter().enumerate() {
+        assert_eq!(
+            status.sort_order, idx as i64,
+            "sort_order must be monotonically increasing"
+        );
+    }
+}
+
+#[tokio::test]
+async fn project_create_with_default_statuses_rolls_back_on_project_failure() {
+    // Passing a non-existent organization_id violates the projects FK, so the
+    // project insert fails inside the helper's transaction. After the failure
+    // the projects table must be empty — proving the helper does not commit a
+    // partial state and (by extension) that the status-seed branch is also
+    // never observed without a project.
+    let pool = make_pool().await;
+
+    let result = ProjectRow::create_with_default_statuses(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: Uuid::new_v4(), // unknown — FK violation
+            name: "Doomed".into(),
+            color: "#000".into(),
+        },
+    )
+    .await;
+    assert!(result.is_err(), "expected FK violation, got {:?}", result);
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row_count, 0, "no project row should remain after rollback");
+
+    let status_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_statuses")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        status_count, 0,
+        "no status rows should remain after rollback",
+    );
+}
+
+#[tokio::test]
+async fn issue_create_with_org_short_id_uses_org_prefix_and_counter() {
+    // Set the org's issue_prefix to a non-default value so we exercise the
+    // prefix-from-org path (rather than just the 'ISS' default).
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    sqlx::query("UPDATE organizations SET issue_prefix = 'ACME' WHERE id = ?")
+        .bind(fx.organization.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let request = create_issue_request(fx.project.id, fx.status.id);
+
+    let first = Issue::create_with_org_short_id(&pool, Uuid::new_v4(), &request, Some(fx.user.id))
+        .await
+        .unwrap();
+    assert_eq!(first.simple_id, "ACME-1");
+    assert_eq!(first.issue_number, 1);
+
+    let second = Issue::create_with_org_short_id(&pool, Uuid::new_v4(), &request, Some(fx.user.id))
+        .await
+        .unwrap();
+    assert_eq!(second.simple_id, "ACME-2");
+    assert_eq!(second.issue_number, 2);
+
+    // The org's issue_counter is the source of truth, so it must reflect the
+    // last allocation.
+    let org_after = Organization::find_by_id(&pool, fx.organization.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(org_after.issue_counter, 2);
+}
+
+#[tokio::test]
+async fn issue_create_with_org_short_id_unique_across_projects_in_same_org() {
+    // Two projects in the same org must not produce duplicate issue_number /
+    // simple_id values — the counter is org-wide, not project-scoped.
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    let other_project = ProjectRow::create(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            name: "Other".into(),
+            color: "#fff".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let other_status = ProjectStatus::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateProjectStatusRequest {
+            id: None,
+            project_id: other_project.id,
+            name: "Backlog".into(),
+            color: "#000".into(),
+            sort_order: 0,
+            hidden: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    let first = Issue::create_with_org_short_id(
+        &pool,
+        Uuid::new_v4(),
+        &create_issue_request(fx.project.id, fx.status.id),
+        Some(fx.user.id),
+    )
+    .await
+    .unwrap();
+    let second = Issue::create_with_org_short_id(
+        &pool,
+        Uuid::new_v4(),
+        &create_issue_request(other_project.id, other_status.id),
+        Some(fx.user.id),
+    )
+    .await
+    .unwrap();
+
+    assert_ne!(
+        first.issue_number, second.issue_number,
+        "issue_number must be unique across projects in the same org",
+    );
+    assert_eq!(first.simple_id, "ISS-1");
+    assert_eq!(second.simple_id, "ISS-2");
+}
+
+#[tokio::test]
+async fn invitation_accept_marks_accepted_and_inserts_membership() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let invitee = User::create(
+        &pool,
+        &CreateUser {
+            id: Uuid::new_v4(),
+            email: "invitee@example.com".into(),
+            first_name: None,
+            last_name: None,
+            username: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let invitation = Invitation::create(
+        &pool,
+        &CreateInvitation {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            invited_by_user_id: Some(fx.user.id),
+            email: "invitee@example.com",
+            role: MemberRole::Member,
+            token: "tok-accept",
+            expires_at: chrono::Utc::now() + chrono::Duration::days(7),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(invitation.status, InvitationStatus::Pending));
+
+    let accepted = Invitation::accept(&pool, "tok-accept", invitee.id)
+        .await
+        .unwrap();
+    assert_eq!(accepted.organization_id, fx.organization.id);
+    assert!(matches!(accepted.role, MemberRole::Member));
+
+    // Membership must now exist.
+    let member = OrganizationMember::find(&pool, fx.organization.id, invitee.id)
+        .await
+        .unwrap();
+    assert!(
+        member.is_some(),
+        "accepting an invitation must insert membership",
+    );
+
+    // Status must be flipped to accepted.
+    let stored = Invitation::find_by_token(&pool, "tok-accept")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(stored.status, InvitationStatus::Accepted));
+}
+
+#[tokio::test]
+async fn invitation_accept_rejects_already_accepted() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    Invitation::create(
+        &pool,
+        &CreateInvitation {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            invited_by_user_id: Some(fx.user.id),
+            email: "first@example.com",
+            role: MemberRole::Member,
+            token: "tok-once",
+            expires_at: chrono::Utc::now() + chrono::Duration::days(7),
+        },
+    )
+    .await
+    .unwrap();
+
+    Invitation::accept(&pool, "tok-once", fx.user.id)
+        .await
+        .unwrap();
+    let second = Invitation::accept(&pool, "tok-once", fx.user.id).await;
+    assert!(matches!(second, Err(AcceptError::AlreadyResolved)));
+}
+
+#[tokio::test]
+async fn invitation_accept_rejects_expired() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    Invitation::create(
+        &pool,
+        &CreateInvitation {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            invited_by_user_id: Some(fx.user.id),
+            email: "expired@example.com",
+            role: MemberRole::Member,
+            token: "tok-expired",
+            expires_at: chrono::Utc::now() - chrono::Duration::seconds(1),
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = Invitation::accept(&pool, "tok-expired", fx.user.id).await;
+    assert!(matches!(result, Err(AcceptError::Expired)));
+}
+
+#[tokio::test]
+async fn workspace_issue_link_replace_for_workspace_relinks_singular() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue_a = make_issue(&pool, &fx, "TST-RA").await;
+    let issue_b = make_issue(&pool, &fx, "TST-RB").await;
+
+    // Initial link.
+    WorkspaceIssueLink::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateWorkspaceIssueLinkRequest {
+            id: None,
+            workspace_id: fx.workspace.id,
+            issue_id: issue_a.id,
+            project_id: fx.project.id,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Relink to a different issue using replace_for_workspace.
+    let replaced = WorkspaceIssueLink::replace_for_workspace(
+        &pool,
+        fx.workspace.id,
+        issue_b.id,
+        fx.project.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replaced.issue_id, issue_b.id);
+
+    // Exactly one link must remain, pointing to issue_b — no stale rows.
+    let links = WorkspaceIssueLink::find_by_workspace(&pool, fx.workspace.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        links.len(),
+        1,
+        "workspace must have exactly one active linked issue after relink",
+    );
+    assert_eq!(links[0].issue_id, issue_b.id);
 }

@@ -39,15 +39,18 @@ async fn get_workspace_by_local_id(
         .ok_or_else(|| ApiError::BadRequest("Workspace not found".to_string()))?;
 
     let links = WorkspaceIssueLink::find_by_workspace(pool, workspace.id).await?;
-    let link = links.into_iter().next();
+    let link = links
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::BadRequest("Workspace is not linked to an issue".to_string()))?;
 
     let user = synthetic::local_user(&deployment).await?;
 
     let wire_workspace = WireWorkspace {
         id: workspace.id,
-        project_id: link.as_ref().map(|l| l.project_id).unwrap_or_default(),
+        project_id: link.project_id,
         owner_user_id: user.id,
-        issue_id: link.as_ref().map(|l| l.issue_id),
+        issue_id: Some(link.issue_id),
         local_workspace_id: Some(workspace.id),
         name: workspace.name,
         archived: workspace.archived,
