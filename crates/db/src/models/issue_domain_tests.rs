@@ -178,13 +178,11 @@ fn create_issue_request(project_id: Uuid, status_id: Uuid) -> CreateIssueRequest
     }
 }
 
-async fn make_issue(pool: &SqlitePool, fx: &Fixtures, simple_id: &str) -> Issue {
+async fn make_issue(pool: &SqlitePool, fx: &Fixtures) -> Issue {
     Issue::create(
         pool,
         &CreateIssue {
             id: Uuid::new_v4(),
-            issue_number: 1,
-            simple_id: simple_id.into(),
             creator_user_id: Some(fx.user.id),
             request: create_issue_request(fx.project.id, fx.status.id),
         },
@@ -394,7 +392,7 @@ async fn project_status_and_tag_crud() {
 async fn issue_crud_round_trip_with_patch_shape() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-1").await;
+    let issue = make_issue(&pool, &fx).await;
 
     let fetched = Issue::find_by_id(&pool, issue.id).await.unwrap().unwrap();
     assert_eq!(fetched.title, "Hello");
@@ -426,8 +424,8 @@ async fn issue_crud_round_trip_with_patch_shape() {
     assert_eq!(updated.sort_order, 10.0);
     assert_eq!(updated.extension_metadata.0, json!({"k": 1}));
 
-    // simple_id lookup
-    let by_simple = Issue::find_by_simple_id(&pool, fx.project.id, "TST-1")
+    // simple_id lookup uses the generator-assigned identifier.
+    let by_simple = Issue::find_by_simple_id(&pool, fx.project.id, &issue.simple_id)
         .await
         .unwrap();
     assert!(by_simple.is_some());
@@ -450,8 +448,6 @@ async fn issue_rejects_unknown_status_fk() {
         &pool,
         &CreateIssue {
             id: Uuid::new_v4(),
-            issue_number: 1,
-            simple_id: "TST-99".into(),
             creator_user_id: None,
             request: create_issue_request(fx.project.id, Uuid::new_v4()),
         },
@@ -464,7 +460,7 @@ async fn issue_rejects_unknown_status_fk() {
 async fn issue_assignee_follower_tag_round_trip() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-2").await;
+    let issue = make_issue(&pool, &fx).await;
 
     let assignee = IssueAssignee::create(
         &pool,
@@ -552,8 +548,8 @@ async fn issue_assignee_rejects_unknown_issue() {
 async fn issue_relationship_round_trip() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let a = make_issue(&pool, &fx, "TST-A").await;
-    let b = make_issue(&pool, &fx, "TST-B").await;
+    let a = make_issue(&pool, &fx).await;
+    let b = make_issue(&pool, &fx).await;
 
     let rel = IssueRelationship::create(
         &pool,
@@ -583,7 +579,7 @@ async fn issue_relationship_round_trip() {
 async fn issue_relationship_rejects_self_link() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let a = make_issue(&pool, &fx, "TST-S").await;
+    let a = make_issue(&pool, &fx).await;
     let result = IssueRelationship::create(
         &pool,
         Uuid::new_v4(),
@@ -606,7 +602,7 @@ async fn issue_relationship_rejects_self_link() {
 async fn issue_comment_and_reaction_round_trip() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-C").await;
+    let issue = make_issue(&pool, &fx).await;
 
     let comment = IssueComment::create(
         &pool,
@@ -680,7 +676,7 @@ async fn issue_comment_and_reaction_round_trip() {
 async fn workspace_issue_link_round_trip() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-W").await;
+    let issue = make_issue(&pool, &fx).await;
 
     let link = WorkspaceIssueLink::create(
         &pool,
@@ -813,7 +809,7 @@ async fn project_row_try_into_wire_requires_organization_id() {
 async fn issue_follower_find_by_issue_orders_by_id() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-OF").await;
+    let issue = make_issue(&pool, &fx).await;
 
     // Insert in reverse-id order to prove the reader does the sort, not insert
     // order. The follower table has a UNIQUE(issue_id, user_id) so we need
@@ -866,7 +862,7 @@ async fn issue_follower_find_by_issue_orders_by_id() {
 async fn issue_tag_find_by_issue_orders_by_id() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
-    let issue = make_issue(&pool, &fx, "TST-OT").await;
+    let issue = make_issue(&pool, &fx).await;
 
     // Need distinct project tags because issue_tags has UNIQUE(issue_id, tag_id).
     let tag_a = ProjectTag::create(
@@ -1132,4 +1128,166 @@ fn workspace_issue_link_wire_conversion_json_shape() {
         "created_at": fixed_ts_json(2026, 6, 1),
     });
     assert_eq!(actual, expected);
+}
+
+// === Atomic simple_id generator tests ===
+
+/// Disk-backed multi-connection pool for tests that exercise concurrent
+/// `Issue::create` against a single project. WAL journal mode + busy_timeout
+/// is the production-realistic setup that lets the BEGIN IMMEDIATE writer
+/// lock serialize counter increments without false `SQLITE_BUSY` failures.
+async fn make_concurrent_pool() -> (SqlitePool, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let opts = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(std::time::Duration::from_secs(10))
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(opts)
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    (pool, dir)
+}
+
+#[tokio::test]
+async fn issue_create_assigns_org_prefixed_simple_id_starting_at_one() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    let first = make_issue(&pool, &fx).await;
+    let second = make_issue(&pool, &fx).await;
+
+    assert_eq!(first.issue_number, 1);
+    assert_eq!(second.issue_number, 2);
+    assert_eq!(
+        first.simple_id,
+        format!("{}-1", fx.organization.issue_prefix)
+    );
+    assert_eq!(
+        second.simple_id,
+        format!("{}-2", fx.organization.issue_prefix)
+    );
+
+    let org = Organization::find_by_id(&pool, fx.organization.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(org.issue_counter, 2);
+}
+
+#[tokio::test]
+async fn issue_create_rolls_back_counter_on_insert_failure() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    // Burn one allocation so the counter is at a non-zero baseline; the next
+    // failed create must leave the counter exactly here.
+    let _ = make_issue(&pool, &fx).await;
+    let baseline = Organization::find_by_id(&pool, fx.organization.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .issue_counter;
+    assert_eq!(baseline, 1);
+
+    // FK violation: status_id does not exist. The UPDATE+RETURNING already
+    // bumped the counter inside the transaction; the failed INSERT must
+    // ROLLBACK that bump.
+    let result = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            creator_user_id: None,
+            request: create_issue_request(fx.project.id, Uuid::new_v4()),
+        },
+    )
+    .await;
+    assert!(result.is_err(), "expected FK violation, got {:?}", result);
+
+    let after = Organization::find_by_id(&pool, fx.organization.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .issue_counter;
+    assert_eq!(
+        after, baseline,
+        "counter must be unchanged after a failed insert; rollback did not fire",
+    );
+}
+
+#[tokio::test]
+async fn issue_create_concurrent_no_gaps_no_duplicates() {
+    let (pool, _guard) = make_concurrent_pool().await;
+    let fx = seed(&pool).await;
+
+    // Enough concurrent creators to exercise BEGIN IMMEDIATE serialization
+    // without making the test runtime painful. Higher would be fine too.
+    const N: i64 = 32;
+
+    let mut handles = Vec::with_capacity(N as usize);
+    for _ in 0..N {
+        let pool = pool.clone();
+        let project_id = fx.project.id;
+        let status_id = fx.status.id;
+        let user_id = fx.user.id;
+        handles.push(tokio::spawn(async move {
+            Issue::create(
+                &pool,
+                &CreateIssue {
+                    id: Uuid::new_v4(),
+                    creator_user_id: Some(user_id),
+                    request: create_issue_request(project_id, status_id),
+                },
+            )
+            .await
+        }));
+    }
+
+    let mut issues = Vec::with_capacity(N as usize);
+    for h in handles {
+        issues.push(h.await.unwrap().unwrap());
+    }
+
+    // No duplicate simple_ids — the schema-level UNIQUE backstop would have
+    // surfaced sqlx errors above if the generator emitted collisions, but
+    // assert directly so a regression is named clearly.
+    let mut simple_ids: Vec<String> = issues.iter().map(|i| i.simple_id.clone()).collect();
+    simple_ids.sort();
+    simple_ids.dedup();
+    assert_eq!(
+        simple_ids.len(),
+        N as usize,
+        "duplicate simple_ids in {:?}",
+        issues.iter().map(|i| &i.simple_id).collect::<Vec<_>>(),
+    );
+
+    // No gaps in issue_number: the assigned set is exactly 1..=N.
+    let mut numbers: Vec<i64> = issues.iter().map(|i| i.issue_number).collect();
+    numbers.sort();
+    let expected: Vec<i64> = (1..=N).collect();
+    assert_eq!(
+        numbers, expected,
+        "issue_number set must be contiguous 1..=N"
+    );
+
+    // Counter on the org row matches the highest assigned number.
+    let org = Organization::find_by_id(&pool, fx.organization.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(org.issue_counter, N);
+
+    // simple_id format is {prefix}-{N} for every assignment.
+    let prefix = fx.organization.issue_prefix.clone();
+    for issue in &issues {
+        assert_eq!(
+            issue.simple_id,
+            format!("{}-{}", prefix, issue.issue_number),
+        );
+    }
 }

@@ -65,8 +65,6 @@ pub struct Issue {
 #[derive(Debug, Clone)]
 pub struct CreateIssue {
     pub id: Uuid,
-    pub issue_number: i64,
-    pub simple_id: String,
     pub creator_user_id: Option<Uuid>,
     pub request: CreateIssueRequest,
 }
@@ -168,60 +166,100 @@ impl Issue {
         .await
     }
 
+    /// Atomically allocates the next per-organization issue identifier and
+    /// inserts the issue in a single `BEGIN IMMEDIATE` transaction. The
+    /// counter bump and the insert succeed or roll back together, so a failed
+    /// insert leaves `organizations.issue_counter` at its pre-call value.
+    ///
+    /// `BEGIN IMMEDIATE` is required: sqlx's default deferred transactions
+    /// upgrade to a writer lazily, which is a TOCTOU window between the
+    /// counter read and the insert.
     pub async fn create(pool: &SqlitePool, data: &CreateIssue) -> Result<Self, sqlx::Error> {
         let req = &data.request;
         let priority: Option<IssuePriority> = req.priority.map(IssuePriority::from);
         let extension_metadata = sqlx::types::Json(req.extension_metadata.clone());
 
-        sqlx::query_as!(
-            Issue,
-            r#"INSERT INTO issues (
-                   id, project_id, issue_number, simple_id, status_id, title,
-                   description, priority, start_date, target_date, completed_at,
-                   sort_order, parent_issue_id, parent_issue_sort_order,
-                   creator_user_id, extension_metadata
-               )
-               VALUES (
-                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                   $12, $13, $14, $15, $16
-               )
-               RETURNING id                       as "id!: Uuid",
-                         project_id               as "project_id!: Uuid",
-                         issue_number,
-                         simple_id,
-                         status_id                as "status_id!: Uuid",
-                         title,
-                         description,
-                         priority                 as "priority: IssuePriority",
-                         start_date               as "start_date: DateTime<Utc>",
-                         target_date              as "target_date: DateTime<Utc>",
-                         completed_at             as "completed_at: DateTime<Utc>",
-                         sort_order               as "sort_order!: f64",
-                         parent_issue_id          as "parent_issue_id: Uuid",
-                         parent_issue_sort_order  as "parent_issue_sort_order: f64",
-                         creator_user_id          as "creator_user_id: Uuid",
-                         extension_metadata       as "extension_metadata!: sqlx::types::Json<Value>",
-                         created_at               as "created_at!: DateTime<Utc>",
-                         updated_at               as "updated_at!: DateTime<Utc>""#,
-            data.id,
-            req.project_id,
-            data.issue_number,
-            data.simple_id,
-            req.status_id,
-            req.title,
-            req.description,
-            priority,
-            req.start_date,
-            req.target_date,
-            req.completed_at,
-            req.sort_order,
-            req.parent_issue_id,
-            req.parent_issue_sort_order,
-            data.creator_user_id,
-            extension_metadata,
-        )
-        .fetch_one(pool)
-        .await
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        let result: Result<Issue, sqlx::Error> = async {
+            let allocated = sqlx::query!(
+                r#"UPDATE organizations
+                   SET issue_counter = issue_counter + 1,
+                       updated_at    = datetime('now', 'subsec')
+                   WHERE id = (SELECT organization_id FROM projects WHERE id = $1)
+                   RETURNING issue_counter as "issue_counter!: i64",
+                             issue_prefix"#,
+                req.project_id,
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+
+            let issue_number = allocated.issue_counter;
+            let simple_id = format!("{}-{}", allocated.issue_prefix, issue_number);
+
+            sqlx::query_as!(
+                Issue,
+                r#"INSERT INTO issues (
+                       id, project_id, issue_number, simple_id, status_id, title,
+                       description, priority, start_date, target_date, completed_at,
+                       sort_order, parent_issue_id, parent_issue_sort_order,
+                       creator_user_id, extension_metadata
+                   )
+                   VALUES (
+                       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                       $12, $13, $14, $15, $16
+                   )
+                   RETURNING id                       as "id!: Uuid",
+                             project_id               as "project_id!: Uuid",
+                             issue_number,
+                             simple_id,
+                             status_id                as "status_id!: Uuid",
+                             title,
+                             description,
+                             priority                 as "priority: IssuePriority",
+                             start_date               as "start_date: DateTime<Utc>",
+                             target_date              as "target_date: DateTime<Utc>",
+                             completed_at             as "completed_at: DateTime<Utc>",
+                             sort_order               as "sort_order!: f64",
+                             parent_issue_id          as "parent_issue_id: Uuid",
+                             parent_issue_sort_order  as "parent_issue_sort_order: f64",
+                             creator_user_id          as "creator_user_id: Uuid",
+                             extension_metadata       as "extension_metadata!: sqlx::types::Json<Value>",
+                             created_at               as "created_at!: DateTime<Utc>",
+                             updated_at               as "updated_at!: DateTime<Utc>""#,
+                data.id,
+                req.project_id,
+                issue_number,
+                simple_id,
+                req.status_id,
+                req.title,
+                req.description,
+                priority,
+                req.start_date,
+                req.target_date,
+                req.completed_at,
+                req.sort_order,
+                req.parent_issue_id,
+                req.parent_issue_sort_order,
+                data.creator_user_id,
+                extension_metadata,
+            )
+            .fetch_one(&mut *conn)
+            .await
+        }
+        .await;
+
+        match result {
+            Ok(issue) => {
+                sqlx::query("COMMIT").execute(&mut *conn).await?;
+                Ok(issue)
+            }
+            Err(err) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(err)
+            }
+        }
     }
 
     pub async fn update(

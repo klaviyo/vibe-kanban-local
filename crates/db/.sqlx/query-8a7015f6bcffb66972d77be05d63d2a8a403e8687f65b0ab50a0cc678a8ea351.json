@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE organizations\n                   SET issue_counter = issue_counter + 1,\n                       updated_at    = datetime('now', 'subsec')\n                   WHERE id = (SELECT organization_id FROM projects WHERE id = $1)\n                   RETURNING issue_counter as \"issue_counter!: i64\",\n                             issue_prefix",
+  "describe": {
+    "columns": [
+      {
+        "name": "issue_counter!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "issue_prefix",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8a7015f6bcffb66972d77be05d63d2a8a403e8687f65b0ab50a0cc678a8ea351"
+}
