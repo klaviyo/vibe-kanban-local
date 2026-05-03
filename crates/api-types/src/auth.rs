@@ -2,7 +2,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct AuthSession {
     pub id: Uuid,
     pub user_id: Uuid,
