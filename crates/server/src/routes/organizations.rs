@@ -17,7 +17,7 @@ use chrono::{Duration, Utc};
 use db::models::{
     invitation::{AcceptError, CreateInvitation, Invitation},
     organization::Organization,
-    organization_member::{MemberRole, OrganizationMember},
+    organization_member::{MemberRole, OrganizationMember, RemoveMemberError, UpdateRoleError},
     user::User,
 };
 use deployment::Deployment;
@@ -307,7 +307,27 @@ async fn remove_member(
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let pool = &deployment.db().pool;
-    OrganizationMember::delete(pool, org_id, user_id).await?;
+    let acting = synthetic::local_user(&deployment).await?;
+    OrganizationMember::remove_with_guardrails(pool, org_id, user_id, acting.id)
+        .await
+        .map_err(|err| match err {
+            RemoveMemberError::CannotRemoveSelf => {
+                ApiError::BadRequest("Cannot remove yourself".to_string())
+            }
+            RemoveMemberError::OrganizationNotFound => {
+                ApiError::BadRequest("Organization not found".to_string())
+            }
+            RemoveMemberError::PersonalOrganization => {
+                ApiError::BadRequest("Cannot modify members of a personal organization".to_string())
+            }
+            RemoveMemberError::MemberNotFound => {
+                ApiError::BadRequest("Member not found".to_string())
+            }
+            RemoveMemberError::LastAdmin => {
+                ApiError::Conflict("Cannot remove the last admin".to_string())
+            }
+            RemoveMemberError::Database(db) => ApiError::Database(db),
+        })?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -317,8 +337,29 @@ async fn update_member_role(
     Json(request): Json<UpdateMemberRoleRequest>,
 ) -> Result<ResponseJson<ApiResponse<UpdateMemberRoleResponse>>, ApiError> {
     let pool = &deployment.db().pool;
+    let acting = synthetic::local_user(&deployment).await?;
     let role = MemberRole::from(request.role);
-    let updated = OrganizationMember::update_role(pool, org_id, user_id, role).await?;
+    let updated =
+        OrganizationMember::update_role_with_guardrails(pool, org_id, user_id, role, acting.id)
+            .await
+            .map_err(|err| match err {
+                UpdateRoleError::CannotDemoteSelf => {
+                    ApiError::BadRequest("Cannot demote yourself".to_string())
+                }
+                UpdateRoleError::OrganizationNotFound => {
+                    ApiError::BadRequest("Organization not found".to_string())
+                }
+                UpdateRoleError::PersonalOrganization => ApiError::BadRequest(
+                    "Cannot modify members of a personal organization".to_string(),
+                ),
+                UpdateRoleError::MemberNotFound => {
+                    ApiError::BadRequest("Member not found".to_string())
+                }
+                UpdateRoleError::LastAdmin => {
+                    ApiError::Conflict("Cannot demote the last admin".to_string())
+                }
+                UpdateRoleError::Database(db) => ApiError::Database(db),
+            })?;
     Ok(ResponseJson(ApiResponse::success(
         UpdateMemberRoleResponse {
             user_id: updated.user_id,

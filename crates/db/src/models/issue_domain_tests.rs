@@ -39,10 +39,15 @@ use super::{
     issue_relationship::IssueRelationship,
     issue_tag::IssueTag,
     organization::Organization,
-    organization_member::{CreateOrganizationMember, MemberRole, OrganizationMember},
+    organization_member::{
+        CreateOrganizationMember, MemberRole, OrganizationMember, RemoveMemberError,
+        UpdateRoleError,
+    },
     project::{CreateProject, ProjectRow},
     project_status::ProjectStatus,
     project_tag::ProjectTag,
+    pull_request::PullRequest,
+    pull_request_issue::PullRequestIssueRepository,
     user::{CreateUser, UpdateUser, User},
     workspace::{CreateWorkspace, Workspace},
     workspace_issue_link::WorkspaceIssueLink,
@@ -1069,4 +1074,283 @@ async fn workspace_issue_link_replace_for_workspace_relinks_singular() {
         "workspace must have exactly one active linked issue after relink",
     );
     assert_eq!(links[0].issue_id, issue_b.id);
+}
+
+#[tokio::test]
+async fn member_remove_with_guardrails_blocks_self_removal() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: fx.user.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = OrganizationMember::remove_with_guardrails(
+        &pool,
+        fx.organization.id,
+        fx.user.id,
+        fx.user.id,
+    )
+    .await;
+    assert!(matches!(result, Err(RemoveMemberError::CannotRemoveSelf)));
+
+    // Member row must still exist.
+    assert!(
+        OrganizationMember::find(&pool, fx.organization.id, fx.user.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn member_remove_with_guardrails_blocks_personal_org() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    // Flag the org as personal so the guardrail trips.
+    sqlx::query("UPDATE organizations SET is_personal = 1 WHERE id = $1")
+        .bind(fx.organization.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Create a second user as the membership target.
+    let target = User::create(
+        &pool,
+        &CreateUser {
+            id: Uuid::new_v4(),
+            email: format!("{}@example.com", Uuid::new_v4().simple()),
+            first_name: None,
+            last_name: None,
+            username: None,
+        },
+    )
+    .await
+    .unwrap();
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: target.id,
+            role: MemberRole::Member,
+        },
+    )
+    .await
+    .unwrap();
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: fx.user.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = OrganizationMember::remove_with_guardrails(
+        &pool,
+        fx.organization.id,
+        target.id,
+        fx.user.id,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(RemoveMemberError::PersonalOrganization)
+    ));
+}
+
+#[tokio::test]
+async fn member_remove_with_guardrails_blocks_last_admin() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    let admin = User::create(
+        &pool,
+        &CreateUser {
+            id: Uuid::new_v4(),
+            email: format!("{}@example.com", Uuid::new_v4().simple()),
+            first_name: None,
+            last_name: None,
+            username: None,
+        },
+    )
+    .await
+    .unwrap();
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: admin.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await
+    .unwrap();
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: fx.user.id,
+            role: MemberRole::Member,
+        },
+    )
+    .await
+    .unwrap();
+
+    // The acting user is fx.user (a member, not the target). Removing the
+    // sole admin must be rejected so the org is never left admin-less.
+    let result =
+        OrganizationMember::remove_with_guardrails(&pool, fx.organization.id, admin.id, fx.user.id)
+            .await;
+    assert!(matches!(result, Err(RemoveMemberError::LastAdmin)));
+
+    assert!(
+        OrganizationMember::find(&pool, fx.organization.id, admin.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn member_update_role_blocks_self_demotion_and_last_admin() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: fx.user.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Self-demotion: blocked even if there were other admins.
+    let result = OrganizationMember::update_role_with_guardrails(
+        &pool,
+        fx.organization.id,
+        fx.user.id,
+        MemberRole::Member,
+        fx.user.id,
+    )
+    .await;
+    assert!(matches!(result, Err(UpdateRoleError::CannotDemoteSelf)));
+
+    // Add a second admin so we can attempt to demote the original — the
+    // self-demotion guard fires before the last-admin check.
+    let other_admin = User::create(
+        &pool,
+        &CreateUser {
+            id: Uuid::new_v4(),
+            email: format!("{}@example.com", Uuid::new_v4().simple()),
+            first_name: None,
+            last_name: None,
+            username: None,
+        },
+    )
+    .await
+    .unwrap();
+    OrganizationMember::create(
+        &pool,
+        &CreateOrganizationMember {
+            organization_id: fx.organization.id,
+            user_id: other_admin.id,
+            role: MemberRole::Admin,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Acting user demotes the *other* admin; now the original is the last
+    // admin — second demotion attempt must be rejected.
+    OrganizationMember::update_role_with_guardrails(
+        &pool,
+        fx.organization.id,
+        other_admin.id,
+        MemberRole::Member,
+        fx.user.id,
+    )
+    .await
+    .unwrap();
+
+    let result = OrganizationMember::update_role_with_guardrails(
+        &pool,
+        fx.organization.id,
+        fx.user.id,
+        MemberRole::Member,
+        other_admin.id,
+    )
+    .await;
+    assert!(matches!(result, Err(UpdateRoleError::LastAdmin)));
+}
+
+#[tokio::test]
+async fn pull_request_issue_list_by_issue_returns_linked_prs() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx, "TST-PR1").await;
+    let other_issue = make_issue(&pool, &fx, "TST-PR2").await;
+
+    let pr_one = PullRequest::create(&pool, None, None, "https://example.com/pr/1", 1, "main")
+        .await
+        .unwrap();
+    let pr_two = PullRequest::create(&pool, None, None, "https://example.com/pr/2", 2, "main")
+        .await
+        .unwrap();
+
+    PullRequestIssueRepository::link(&pool, &pr_one.id, issue.id)
+        .await
+        .unwrap();
+    PullRequestIssueRepository::link(&pool, &pr_two.id, other_issue.id)
+        .await
+        .unwrap();
+
+    let listed = PullRequestIssueRepository::list_by_issue(&pool, issue.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.len(),
+        1,
+        "only PRs linked to this issue should appear"
+    );
+    assert_eq!(listed[0].url, "https://example.com/pr/1");
+    assert_eq!(listed[0].project_id, fx.project.id);
+    #[allow(deprecated)]
+    {
+        assert_eq!(listed[0].issue_id, issue.id);
+    }
+}
+
+#[tokio::test]
+async fn pull_request_issue_link_is_idempotent() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx, "TST-PR3").await;
+    let pr = PullRequest::create(&pool, None, None, "https://example.com/pr/3", 3, "main")
+        .await
+        .unwrap();
+
+    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+        .await
+        .unwrap();
+    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+        .await
+        .unwrap();
+
+    let listed = PullRequestIssueRepository::list_by_issue(&pool, issue.id)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1, "duplicate link inserts must dedupe");
 }

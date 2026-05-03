@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT role as \"role!: MemberRole\"\n               FROM organization_members\n               WHERE organization_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "name": "role!: MemberRole",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "71c8af2312e5cc061f2187f778b29a5e942549ba1780bdfb5edb1a3e84f3779e"
+}

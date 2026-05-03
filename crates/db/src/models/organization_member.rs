@@ -164,6 +164,191 @@ impl OrganizationMember {
         .await?;
         Ok(result.rows_affected())
     }
+
+    /// Mirror of the cloud member-removal contract: reject self-removal,
+    /// reject mutations on personal organizations, and reject removing the
+    /// last admin — all inside a single transaction so the org cannot be
+    /// observed without an admin.
+    pub async fn remove_with_guardrails(
+        pool: &SqlitePool,
+        organization_id: Uuid,
+        target_user_id: Uuid,
+        acting_user_id: Uuid,
+    ) -> Result<(), RemoveMemberError> {
+        if acting_user_id == target_user_id {
+            return Err(RemoveMemberError::CannotRemoveSelf);
+        }
+
+        let mut tx = pool.begin().await?;
+
+        let org = sqlx::query!(
+            r#"SELECT is_personal as "is_personal!: bool"
+               FROM organizations
+               WHERE id = $1"#,
+            organization_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(RemoveMemberError::OrganizationNotFound)?;
+
+        if org.is_personal {
+            return Err(RemoveMemberError::PersonalOrganization);
+        }
+
+        let target = sqlx::query!(
+            r#"SELECT role as "role!: MemberRole"
+               FROM organization_members
+               WHERE organization_id = $1 AND user_id = $2"#,
+            organization_id,
+            target_user_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(RemoveMemberError::MemberNotFound)?;
+
+        if matches!(target.role, MemberRole::Admin)
+            && admin_count(&mut tx, organization_id).await? <= 1
+        {
+            return Err(RemoveMemberError::LastAdmin);
+        }
+
+        sqlx::query!(
+            "DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2",
+            organization_id,
+            target_user_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Mirror of the cloud role-change contract: block self-demotion, block
+    /// role changes on personal organizations, and block demoting the last
+    /// admin — all inside a single transaction.
+    pub async fn update_role_with_guardrails(
+        pool: &SqlitePool,
+        organization_id: Uuid,
+        target_user_id: Uuid,
+        new_role: MemberRole,
+        acting_user_id: Uuid,
+    ) -> Result<Self, UpdateRoleError> {
+        if acting_user_id == target_user_id && matches!(new_role, MemberRole::Member) {
+            return Err(UpdateRoleError::CannotDemoteSelf);
+        }
+
+        let mut tx = pool.begin().await?;
+
+        let org = sqlx::query!(
+            r#"SELECT is_personal as "is_personal!: bool"
+               FROM organizations
+               WHERE id = $1"#,
+            organization_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(UpdateRoleError::OrganizationNotFound)?;
+
+        if org.is_personal {
+            return Err(UpdateRoleError::PersonalOrganization);
+        }
+
+        let target = sqlx::query_as!(
+            OrganizationMember,
+            r#"SELECT organization_id as "organization_id!: Uuid",
+                      user_id         as "user_id!: Uuid",
+                      role            as "role!: MemberRole",
+                      joined_at       as "joined_at!: DateTime<Utc>",
+                      last_seen_at    as "last_seen_at: DateTime<Utc>"
+               FROM organization_members
+               WHERE organization_id = $1 AND user_id = $2"#,
+            organization_id,
+            target_user_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(UpdateRoleError::MemberNotFound)?;
+
+        if target.role == new_role {
+            tx.commit().await?;
+            return Ok(target);
+        }
+
+        if matches!(target.role, MemberRole::Admin)
+            && matches!(new_role, MemberRole::Member)
+            && admin_count(&mut tx, organization_id).await? <= 1
+        {
+            return Err(UpdateRoleError::LastAdmin);
+        }
+
+        let updated = sqlx::query_as!(
+            OrganizationMember,
+            r#"UPDATE organization_members
+               SET role = $3
+               WHERE organization_id = $1 AND user_id = $2
+               RETURNING organization_id as "organization_id!: Uuid",
+                         user_id         as "user_id!: Uuid",
+                         role            as "role!: MemberRole",
+                         joined_at       as "joined_at!: DateTime<Utc>",
+                         last_seen_at    as "last_seen_at: DateTime<Utc>""#,
+            organization_id,
+            target_user_id,
+            new_role,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(updated)
+    }
+}
+
+async fn admin_count(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    organization_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"SELECT COUNT(*) as "count!: i64"
+           FROM organization_members
+           WHERE organization_id = $1 AND role = 'admin'"#,
+        organization_id,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(row.count)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RemoveMemberError {
+    #[error("cannot remove yourself")]
+    CannotRemoveSelf,
+    #[error("organization not found")]
+    OrganizationNotFound,
+    #[error("cannot modify members of a personal organization")]
+    PersonalOrganization,
+    #[error("member not found")]
+    MemberNotFound,
+    #[error("cannot remove the last admin")]
+    LastAdmin,
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateRoleError {
+    #[error("cannot demote yourself")]
+    CannotDemoteSelf,
+    #[error("organization not found")]
+    OrganizationNotFound,
+    #[error("cannot modify members of a personal organization")]
+    PersonalOrganization,
+    #[error("member not found")]
+    MemberNotFound,
+    #[error("cannot demote the last admin")]
+    LastAdmin,
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
 }
 
 impl From<OrganizationMember> for wire::OrganizationMember {
