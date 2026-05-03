@@ -518,8 +518,8 @@ impl IssueRepository {
     }
 
     /// Syncs issue status based on a workflow signal.
-    /// - `ReviewStarted` → move issue to "In review"
-    /// - `WorkMerged` → if all linked PRs are merged, move issue to "Done"
+    /// - `ReviewStarted` → move issue to "Review"
+    /// - `WorkMerged` → if all linked PRs are merged, move issue to "PR Ready"
     async fn sync_status_from_workflow_signal(
         conn: &mut PgConnection,
         issue_id: Uuid,
@@ -530,12 +530,12 @@ impl IssueRepository {
         };
 
         let target_status_name = match signal {
-            IssueWorkflowSignal::ReviewStarted => "In review",
+            IssueWorkflowSignal::ReviewStarted => "Review",
             IssueWorkflowSignal::WorkMerged => {
                 let prs = PullRequestRepository::list_by_issue(&mut *conn, issue_id).await?;
                 let all_merged = prs.iter().all(|pr| pr.status == PullRequestStatus::Merged);
                 if all_merged {
-                    "Done"
+                    "PR Ready"
                 } else {
                     return Ok(());
                 }
@@ -574,8 +574,8 @@ impl IssueRepository {
     }
 
     /// Syncs issue status based on the current pull-request status.
-    /// - Open PR => move issue to "In review"
-    /// - Merged/closed PR => if all linked PRs are merged, move issue to "Done"
+    /// - Open PR => move issue to "Review"
+    /// - Merged/closed PR => if all linked PRs are merged, move issue to "PR Ready"
     pub async fn sync_status_from_pull_request(
         conn: &mut PgConnection,
         issue_id: Uuid,
@@ -635,8 +635,8 @@ impl IssueRepository {
     }
 
     /// Syncs issue state when a workspace is created:
-    /// - If this is the first workspace and the issue is in "Backlog" or "To do", moves to "In progress"
-    /// - If sub-issue, also moves parent issue to "In progress" if pending
+    /// - If this is the first workspace and the issue is in "Backlog" or "To do", moves to "Implement"
+    /// - If sub-issue, also moves parent issue to "Implement" if pending
     /// - If the issue has no assignees, adds the workspace creator as an assignee
     pub async fn sync_issue_from_workspace_created(
         pool: &PgPool,
@@ -650,9 +650,8 @@ impl IssueRepository {
                 return Ok(());
             };
 
-            let Some(in_progress_status) =
-                ProjectStatusRepository::find_by_name(pool, issue.project_id, "In progress")
-                    .await?
+            let Some(implement_status) =
+                ProjectStatusRepository::find_by_name(pool, issue.project_id, "Implement").await?
             else {
                 return Ok(());
             };
@@ -663,11 +662,11 @@ impl IssueRepository {
                 &mut conn,
                 issue_id,
                 issue.status_id,
-                in_progress_status.id,
+                implement_status.id,
             )
             .await?;
 
-            // If sub-issue, also move parent issue to "In progress"
+            // If sub-issue, also move parent issue to "Implement"
             if let Some(parent_issue_id) = issue.parent_issue_id
                 && let Some(parent_issue) = Self::find_by_id(pool, parent_issue_id).await?
             {
@@ -675,7 +674,7 @@ impl IssueRepository {
                     &mut conn,
                     parent_issue_id,
                     parent_issue.status_id,
-                    in_progress_status.id,
+                    implement_status.id,
                 )
                 .await?;
             }

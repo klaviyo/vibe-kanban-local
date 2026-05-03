@@ -6,15 +6,21 @@ use uuid::Uuid;
 
 use super::get_txid;
 
-/// Default statuses that are created for each new project (name, color, sort_order, hidden)
-/// Colors are in HSL format: "H S% L%"
+/// Default statuses that are created for each new project (name, color, sort_order, hidden).
+/// Colors are in HSL format: "H S% L%". Names match the nine-status contract
+/// the `two_stage_coding` conductor pipeline drives — keep this list in sync
+/// with the local `IdentitySeeder::DEFAULT_PROJECT_STATUSES` and the workflow
+/// status lookups in `IssueRepository`.
 pub const DEFAULT_STATUSES: &[(&str, &str, i32, bool)] = &[
     ("Backlog", "220 9% 46%", 0, true),
     ("To do", "217 91% 60%", 1, false),
-    ("In progress", "38 92% 50%", 2, false),
-    ("In review", "258 90% 66%", 3, false),
-    ("Done", "142 71% 45%", 4, false),
-    ("Cancelled", "0 84% 60%", 5, true),
+    ("Implement", "38 92% 50%", 2, false),
+    ("Review", "258 90% 66%", 3, false),
+    ("Monitor", "199 89% 48%", 4, false),
+    ("PR Candidate", "271 91% 65%", 5, false),
+    ("PR Finishing", "292 84% 61%", 6, false),
+    ("PR Ready", "142 71% 45%", 7, false),
+    ("Cancelled", "0 84% 60%", 8, true),
 ];
 
 #[derive(Debug, Error)]

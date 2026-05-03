@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects\n               SET organization_id = $1\n               WHERE organization_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "334b08bc5a412e6278e873db721d905b014f9c93c4e61c096c944489d57314e0"
+}
