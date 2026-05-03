@@ -1,5 +1,5 @@
 use api_types::{
-    self as wire,
+    self as wire, DeleteResponse, MutationResponse,
     issue::{CreateIssueRequest, UpdateIssueRequest},
 };
 use chrono::{DateTime, Utc};
@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool, Type};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "issue_priority", rename_all = "snake_case")]
@@ -166,15 +168,23 @@ impl Issue {
         .await
     }
 
-    /// Atomically allocates the next per-organization issue identifier and
-    /// inserts the issue in a single `BEGIN IMMEDIATE` transaction. The
-    /// counter bump and the insert succeed or roll back together, so a failed
-    /// insert leaves `organizations.issue_counter` at its pre-call value.
+    /// Atomically allocates the next per-organization issue identifier,
+    /// inserts the issue, and threads the wire-envelope `txid` from the
+    /// `mutation_log` allocator — all within a single `BEGIN IMMEDIATE`
+    /// transaction. The counter bump, the insert, and the txid allocation
+    /// succeed or roll back together; a failed insert leaves both
+    /// `organizations.issue_counter` and the consumer-visible txid stream
+    /// at their pre-call values.
     ///
     /// `BEGIN IMMEDIATE` is required: sqlx's default deferred transactions
     /// upgrade to a writer lazily, which is a TOCTOU window between the
-    /// counter read and the insert.
-    pub async fn create(pool: &SqlitePool, data: &CreateIssue) -> Result<Self, sqlx::Error> {
+    /// counter read and the insert. Because of that we drive the
+    /// transaction with raw `BEGIN IMMEDIATE` / `COMMIT` against an
+    /// acquired connection rather than `pool.begin()` (which is deferred).
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateIssue,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let req = &data.request;
         let priority: Option<IssuePriority> = req.priority.map(IssuePriority::from);
         let extension_metadata = sqlx::types::Json(req.extension_metadata.clone());
@@ -182,7 +192,7 @@ impl Issue {
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
-        let result: Result<Issue, sqlx::Error> = async {
+        let result: Result<MutationResponse<Issue>, sqlx::Error> = async {
             let allocated = sqlx::query!(
                 r#"UPDATE organizations
                    SET issue_counter = issue_counter + 1,
@@ -198,7 +208,7 @@ impl Issue {
             let issue_number = allocated.issue_counter;
             let simple_id = format!("{}-{}", allocated.issue_prefix, issue_number);
 
-            sqlx::query_as!(
+            let row = sqlx::query_as!(
                 Issue,
                 r#"INSERT INTO issues (
                        id, project_id, issue_number, simple_id, status_id, title,
@@ -246,14 +256,18 @@ impl Issue {
                 extension_metadata,
             )
             .fetch_one(&mut *conn)
-            .await
+            .await?;
+
+            let txid = mutation_log::next_txid(&mut *conn).await?;
+
+            Ok(MutationResponse { data: row, txid })
         }
         .await;
 
         match result {
-            Ok(issue) => {
+            Ok(response) => {
                 sqlx::query("COMMIT").execute(&mut *conn).await?;
-                Ok(issue)
+                Ok(response)
             }
             Err(err) => {
                 let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
@@ -266,7 +280,7 @@ impl Issue {
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateIssueRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_status_id = data.status_id.is_some();
         let status_id_value = data.status_id;
         let update_title = data.title.is_some();
@@ -290,7 +304,8 @@ impl Issue {
         let update_extension_metadata = data.extension_metadata.is_some();
         let extension_metadata_value = data.extension_metadata.clone().map(sqlx::types::Json);
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             Issue,
             r#"UPDATE issues
                SET status_id                = CASE WHEN $2  THEN $3  ELSE status_id END,
@@ -348,15 +363,21 @@ impl Issue {
             update_extension_metadata,
             extension_metadata_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM issues WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM issues WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 

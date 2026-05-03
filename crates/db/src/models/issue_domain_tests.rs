@@ -84,7 +84,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let user = User::create(
         pool,
@@ -97,7 +98,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let project = ProjectRow::create(
         pool,
@@ -109,7 +111,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let status = ProjectStatus::create(
         pool,
@@ -124,7 +127,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let tag = ProjectTag::create(
         pool,
@@ -137,7 +141,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let workspace = Workspace::create(
         pool,
@@ -189,6 +194,7 @@ async fn make_issue(pool: &SqlitePool, fx: &Fixtures) -> Issue {
     )
     .await
     .unwrap()
+    .data
 }
 
 #[tokio::test]
@@ -203,7 +209,8 @@ async fn organization_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let fetched = Organization::find_by_id(&pool, org.id)
         .await
@@ -221,13 +228,14 @@ async fn organization_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "Acme Inc");
 
     let all = Organization::find_all(&pool).await.unwrap();
     assert_eq!(all.len(), 1);
 
-    assert_eq!(Organization::delete(&pool, org.id).await.unwrap(), 1);
+    assert!(Organization::delete(&pool, org.id).await.unwrap().txid > 0);
     assert!(
         Organization::find_by_id(&pool, org.id)
             .await
@@ -250,7 +258,8 @@ async fn user_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     assert_eq!(
         User::find_by_email(&pool, "ada@example.com")
@@ -271,12 +280,13 @@ async fn user_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.first_name.as_deref(), Some("Augusta"));
     assert_eq!(updated.last_name.as_deref(), Some("King"));
     assert!(updated.username.is_none());
 
-    assert_eq!(User::delete(&pool, user.id).await.unwrap(), 1);
+    assert!(User::delete(&pool, user.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -293,13 +303,15 @@ async fn organization_member_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert!(matches!(member.role, MemberRole::Admin));
 
     let demoted =
         OrganizationMember::update_role(&pool, fx.organization.id, fx.user.id, MemberRole::Member)
             .await
-            .unwrap();
+            .unwrap()
+            .data;
     assert!(matches!(demoted.role, MemberRole::Member));
 
     assert_eq!(
@@ -317,11 +329,12 @@ async fn organization_member_crud_round_trip() {
         1
     );
 
-    assert_eq!(
+    assert!(
         OrganizationMember::delete(&pool, fx.organization.id, fx.user.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
 }
 
@@ -358,7 +371,8 @@ async fn project_status_and_tag_crud() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "In Progress");
     assert_eq!(updated.sort_order, 2);
     assert!(updated.hidden);
@@ -377,7 +391,8 @@ async fn project_status_and_tag_crud() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(tag_updated.name, "bug");
     assert_eq!(
         ProjectTag::find_by_project(&pool, fx.project.id)
@@ -417,7 +432,8 @@ async fn issue_crud_round_trip_with_patch_shape() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.title, "Hello world");
     assert!(updated.description.is_none());
     assert!(updated.priority.is_none());
@@ -437,7 +453,7 @@ async fn issue_crud_round_trip_with_patch_shape() {
             .len(),
         1
     );
-    assert_eq!(Issue::delete(&pool, issue.id).await.unwrap(), 1);
+    assert!(Issue::delete(&pool, issue.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -472,7 +488,8 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         IssueAssignee::find_by_issue(&pool, issue.id)
             .await
@@ -480,11 +497,12 @@ async fn issue_assignee_follower_tag_round_trip() {
             .len(),
         1
     );
-    assert_eq!(
+    assert!(
         IssueAssignee::delete_by_issue_and_user(&pool, issue.id, fx.user.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
     assert!(
         IssueAssignee::find_by_id(&pool, assignee.id)
@@ -503,8 +521,15 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
-    assert_eq!(IssueFollower::delete(&pool, follower.id).await.unwrap(), 1);
+    .unwrap()
+    .data;
+    assert!(
+        IssueFollower::delete(&pool, follower.id)
+            .await
+            .unwrap()
+            .txid
+            > 0
+    );
 
     let issue_tag = IssueTag::create(
         &pool,
@@ -516,7 +541,8 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         IssueTag::find_by_issue(&pool, issue.id)
             .await
@@ -524,7 +550,7 @@ async fn issue_assignee_follower_tag_round_trip() {
             .len(),
         1
     );
-    assert_eq!(IssueTag::delete(&pool, issue_tag.id).await.unwrap(), 1);
+    assert!(IssueTag::delete(&pool, issue_tag.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -562,7 +588,8 @@ async fn issue_relationship_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let fetched = IssueRelationship::find_by_id(&pool, rel.id).await.unwrap();
     assert!(fetched.is_some());
     assert_eq!(
@@ -572,7 +599,7 @@ async fn issue_relationship_round_trip() {
             .len(),
         1
     );
-    assert_eq!(IssueRelationship::delete(&pool, rel.id).await.unwrap(), 1);
+    assert!(IssueRelationship::delete(&pool, rel.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -618,7 +645,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let updated = IssueComment::update(
         &pool,
@@ -629,7 +657,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.message, "hi there");
 
     let reaction = IssueCommentReaction::create(
@@ -645,7 +674,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let updated = IssueCommentReaction::update(
         &pool,
         reaction.id,
@@ -654,7 +684,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.emoji, "🎉");
     assert_eq!(
         IssueCommentReaction::find_by_comment(&pool, comment.id)
@@ -663,13 +694,14 @@ async fn issue_comment_and_reaction_round_trip() {
             .len(),
         1
     );
-    assert_eq!(
+    assert!(
         IssueCommentReaction::delete(&pool, reaction.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
-    assert_eq!(IssueComment::delete(&pool, comment.id).await.unwrap(), 1);
+    assert!(IssueComment::delete(&pool, comment.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -689,7 +721,8 @@ async fn workspace_issue_link_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         WorkspaceIssueLink::find_by_issue(&pool, issue.id)
             .await
@@ -704,7 +737,13 @@ async fn workspace_issue_link_round_trip() {
             .len(),
         1
     );
-    assert_eq!(WorkspaceIssueLink::delete(&pool, link.id).await.unwrap(), 1);
+    assert!(
+        WorkspaceIssueLink::delete(&pool, link.id)
+            .await
+            .unwrap()
+            .txid
+            > 0
+    );
 }
 
 #[tokio::test]
@@ -752,13 +791,14 @@ async fn project_row_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "Renamed");
     assert_eq!(updated.sort_order, 7);
     // unchanged via skip-shape
     assert_eq!(updated.color, fx.project.color);
 
-    assert_eq!(ProjectRow::delete(&pool, fx.project.id).await.unwrap(), 1);
+    assert!(ProjectRow::delete(&pool, fx.project.id).await.unwrap().txid > 0);
     assert!(
         ProjectRow::find_by_id(&pool, fx.project.id)
             .await
@@ -828,7 +868,8 @@ async fn issue_follower_find_by_issue_orders_by_id() {
                 },
             )
             .await
-            .unwrap(),
+            .unwrap()
+            .data,
         );
     }
 
@@ -876,7 +917,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let tag_b = ProjectTag::create(
         &pool,
         Uuid::from_u128(0xBB),
@@ -888,7 +930,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let tag_c = ProjectTag::create(
         &pool,
         Uuid::from_u128(0xCC),
@@ -900,7 +943,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let id_a = Uuid::from_u128(0x300);
     let id_b = Uuid::from_u128(0x200);
@@ -1247,7 +1291,10 @@ async fn issue_create_concurrent_no_gaps_no_duplicates() {
 
     let mut issues = Vec::with_capacity(N as usize);
     for h in handles {
-        issues.push(h.await.unwrap().unwrap());
+        // Unwrap the wire envelope to the underlying Issue row — the
+        // hybrid Issue::create returns MutationResponse<Issue>, but
+        // these asserts target the row contract.
+        issues.push(h.await.unwrap().unwrap().data);
     }
 
     // No duplicate simple_ids — the schema-level UNIQUE backstop would have
@@ -1351,7 +1398,7 @@ async fn organization_create_writes_vk_prefix_even_with_legacy_schema_default() 
     .await
     .unwrap();
     assert_eq!(
-        org.issue_prefix, "VK",
+        org.data.issue_prefix, "VK",
         "Organization::create() must write the VK prefix explicitly so \
          upgraded local DBs do not inherit the legacy ISS default",
     );

@@ -1,9 +1,11 @@
-use api_types::{self as wire, project::UpdateProjectRequest};
+use api_types::{self as wire, DeleteResponse, MutationResponse, project::UpdateProjectRequest};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Project {
@@ -117,8 +119,12 @@ impl ProjectRow {
         .await
     }
 
-    pub async fn create(pool: &SqlitePool, data: &CreateProject) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateProject,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectRow,
             r#"INSERT INTO projects (id, organization_id, name, color)
                VALUES ($1, $2, $3, $4)
@@ -134,15 +140,18 @@ impl ProjectRow {
             data.name,
             data.color,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateProjectRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_name = data.name.is_some();
         let name_value = data.name.clone();
         let update_color = data.color.is_some();
@@ -150,7 +159,8 @@ impl ProjectRow {
         let update_sort_order = data.sort_order.is_some();
         let sort_order_value = data.sort_order.map(i64::from);
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectRow,
             r#"UPDATE projects
                SET name       = CASE WHEN $2 THEN $3 ELSE name END,
@@ -173,15 +183,21 @@ impl ProjectRow {
             update_sort_order,
             sort_order_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM projects WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM projects WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 
