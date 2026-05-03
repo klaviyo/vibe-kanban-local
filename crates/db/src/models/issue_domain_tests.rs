@@ -1159,19 +1159,16 @@ async fn issue_create_assigns_org_prefixed_simple_id_starting_at_one() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
 
+    // Pin the default org prefix to VK; the schema default must not drift.
+    assert_eq!(fx.organization.issue_prefix, "VK");
+
     let first = make_issue(&pool, &fx).await;
     let second = make_issue(&pool, &fx).await;
 
     assert_eq!(first.issue_number, 1);
     assert_eq!(second.issue_number, 2);
-    assert_eq!(
-        first.simple_id,
-        format!("{}-1", fx.organization.issue_prefix)
-    );
-    assert_eq!(
-        second.simple_id,
-        format!("{}-2", fx.organization.issue_prefix)
-    );
+    assert_eq!(first.simple_id, "VK-1");
+    assert_eq!(second.simple_id, "VK-2");
 
     let org = Organization::find_by_id(&pool, fx.organization.id)
         .await

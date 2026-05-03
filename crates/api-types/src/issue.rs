@@ -25,7 +25,7 @@ pub enum IssuePriority {
 pub struct Issue {
     pub id: Uuid,
     pub project_id: Uuid,
-    pub issue_number: i32,
+    pub issue_number: i64,
     pub simple_id: String,
     pub status_id: Uuid,
     pub title: String,
