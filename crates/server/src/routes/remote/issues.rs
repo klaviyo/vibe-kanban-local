@@ -1,6 +1,6 @@
 use api_types::{
-    self as wire, CreateIssueRequest, Issue, IssueSortField, ListIssuesQuery, ListIssuesResponse,
-    MutationResponse, SearchIssuesRequest, SortDirection, UpdateIssueRequest,
+    self as wire, CreateIssueRequest, DeleteResponse, Issue, IssueSortField, ListIssuesQuery,
+    ListIssuesResponse, MutationResponse, SearchIssuesRequest, SortDirection, UpdateIssueRequest,
 };
 use axum::{
     Router,
@@ -85,10 +85,10 @@ async fn create_issue(
     // transaction as the insert. The model handles the lookup, increment, and
     // insert so a concurrent second project in the same org cannot emit a
     // duplicate `issue_number` or the wrong prefix.
-    let issue = IssueRow::create_with_org_short_id(pool, id, &request, Some(user.id)).await?;
+    let response = IssueRow::create_with_org_short_id(pool, id, &request, Some(user.id)).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Issue::from(issue),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
@@ -98,20 +98,20 @@ async fn update_issue(
     Json(request): Json<UpdateIssueRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Issue>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let issue = IssueRow::update(pool, issue_id, &request).await?;
+    let response = IssueRow::update(pool, issue_id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Issue::from(issue),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
 async fn delete_issue(
     State(deployment): State<DeploymentImpl>,
     Path(issue_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    IssueRow::delete(pool, issue_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = IssueRow::delete(pool, issue_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 /// Inline replacement for the cloud's search endpoint. Filters are applied

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO organization_members (organization_id, user_id, role)\n               VALUES ($1, $2, 'admin')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0ab8e2f5bcfcceb690ed088dc16d82b88aadeddf6da0f22b9ec841e3800f7276"
+}

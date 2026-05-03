@@ -30,8 +30,12 @@ try {
     env: { ...process.env, DATABASE_URL: databaseUrl }
   });
 
-  // Prepare queries
-  const sqlxCommand = checkMode ? 'cargo sqlx prepare --check' : 'cargo sqlx prepare';
+  // Prepare queries. Pass `-- --tests` so query macros inside `#[cfg(test)]`
+  // modules (e.g. crates/db/src/identity_seeder.rs tests) get cached too —
+  // `cargo sqlx prepare` defaults to `cargo check`, which skips test code.
+  const sqlxCommand = checkMode
+    ? 'cargo sqlx prepare --check -- --tests'
+    : 'cargo sqlx prepare -- --tests';
   console.log(checkMode ? 'Checking prepared queries...' : 'Preparing queries...');
   execSync(sqlxCommand, {
     stdio: 'inherit',

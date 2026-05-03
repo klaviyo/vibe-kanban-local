@@ -1,11 +1,13 @@
 use api_types::{
-    self as wire,
+    self as wire, DeleteResponse, MutationResponse,
     issue_comment::{CreateIssueCommentRequest, UpdateIssueCommentRequest},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct IssueComment {
@@ -66,8 +68,12 @@ impl IssueComment {
         .await
     }
 
-    pub async fn create(pool: &SqlitePool, data: &CreateIssueComment) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateIssueComment,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             IssueComment,
             r#"INSERT INTO issue_comments (id, issue_id, author_id, parent_id, message)
                VALUES ($1, $2, $3, $4, $5)
@@ -84,21 +90,25 @@ impl IssueComment {
             data.request.parent_id,
             data.request.message,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateIssueCommentRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_message = data.message.is_some();
         let message_value = data.message.clone();
         let update_parent_id = data.parent_id.is_some();
         let parent_id_value = data.parent_id.flatten();
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             IssueComment,
             r#"UPDATE issue_comments
                SET message    = CASE WHEN $2 THEN $3 ELSE message END,
@@ -118,15 +128,21 @@ impl IssueComment {
             update_parent_id,
             parent_id_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM issue_comments WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM issue_comments WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 

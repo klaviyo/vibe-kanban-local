@@ -1,19 +1,17 @@
-//! Synthetic profile and txid helpers used by routes that previously called
-//! the cloud server. The local rewrite needs:
-//!
-//! - A deterministic local `User` row to attribute writes (creator_user_id,
-//!   organization owner) without requiring an OAuth flow.
-//! - A monotonic txid synthesized per mutation so the `MutationResponse<T>`
-//!   envelope can echo a strictly-increasing value without Postgres' xid.
+//! Synthetic-profile helpers used by routes that previously called the cloud
+//! server. The local rewrite needs a deterministic local `User` row to
+//! attribute writes (creator_user_id, organization owner) without requiring
+//! an OAuth flow.
 //!
 //! `local_user` lazily provisions the synthetic user (and a personal
 //! organization with the canonical six-status default) on first read. The UUID
 //! is derived deterministically from the deployment's analytics user_id, so
 //! reinstalls on the same machine resolve to the same row.
 //!
-//! `txid` returns microseconds since the unix epoch. Local mode is a single
-//! writer, so monotonicity-per-process is sufficient for Electric-style
-//! consumers that just need to detect change.
+//! Wire-envelope `txid` synthesis is **not** done here. It is owned by the
+//! `db::models::mutation_log::next_txid` allocator, which runs inside the
+//! same SQLite transaction as the data write so a rollback rolls the txid
+//! back too. Routes consume `MutationResponse.txid` from the model layer.
 
 use api_types::{CreateOrganizationRequest, MemberRole as WireMemberRole, ProfileResponse};
 use db::models::{
@@ -33,13 +31,6 @@ const LOCAL_NAMESPACE: Uuid = Uuid::from_bytes([
 ]);
 
 const SYNTHETIC_EMAIL_DOMAIN: &str = "vibe-kanban.local";
-
-/// Synthesizes a strictly-monotonic transaction ID for the
-/// `MutationResponse<T> { data, txid }` envelope. Microseconds since the unix
-/// epoch — sufficient for single-writer local mode.
-pub fn txid() -> i64 {
-    chrono::Utc::now().timestamp_micros()
-}
 
 /// Derives a deterministic UUID for the local synthetic user from the
 /// deployment's analytics user_id (e.g. `npm_user_<hex>`).
@@ -74,7 +65,7 @@ pub async fn local_user(deployment: &DeploymentImpl) -> Result<User, sqlx::Error
         return Ok(existing);
     }
 
-    User::create(
+    let response = User::create(
         pool,
         &CreateUser {
             id,
@@ -84,7 +75,8 @@ pub async fn local_user(deployment: &DeploymentImpl) -> Result<User, sqlx::Error
             username: Some(deployment.user_id().to_string()),
         },
     )
-    .await
+    .await?;
+    Ok(response.data)
 }
 
 /// Lazily provisions the synthetic personal organization for the local user
@@ -122,7 +114,8 @@ pub async fn local_personal_organization(
             slug: slug.clone(),
         },
     )
-    .await?;
+    .await?
+    .data;
 
     OrganizationMember::create(
         pool,

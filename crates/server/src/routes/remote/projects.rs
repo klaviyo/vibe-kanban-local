@@ -1,5 +1,6 @@
 use api_types::{
-    CreateProjectRequest, ListProjectsResponse, MutationResponse, Project, UpdateProjectRequest,
+    CreateProjectRequest, DeleteResponse, ListProjectsResponse, MutationResponse, Project,
+    UpdateProjectRequest,
 };
 use axum::{
     Router,
@@ -13,7 +14,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListRemoteProjectsQuery {
@@ -40,7 +41,11 @@ async fn list_remote_projects(
 ) -> Result<ResponseJson<ApiResponse<ListProjectsResponse>>, ApiError> {
     let pool = &deployment.db().pool;
     let rows = ProjectRow::find_by_organization(pool, query.organization_id).await?;
-    let projects: Vec<Project> = rows.into_iter().map(Project::from).collect();
+    let projects: Vec<Project> = rows
+        .into_iter()
+        .map(Project::try_from)
+        .collect::<Result<_, _>>()
+        .map_err(|e| ApiError::BadRequest(format!("project missing organization_id: {:?}", e)))?;
     Ok(ResponseJson(ApiResponse::success(ListProjectsResponse {
         projects,
     })))
@@ -54,7 +59,9 @@ async fn get_remote_project(
     let row = ProjectRow::find_by_id(pool, project_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Project not found".to_string()))?;
-    Ok(ResponseJson(ApiResponse::success(Project::from(row))))
+    let project = Project::try_from(row)
+        .map_err(|e| ApiError::BadRequest(format!("project missing organization_id: {:?}", e)))?;
+    Ok(ResponseJson(ApiResponse::success(project)))
 }
 
 /// Creates a project and seeds the canonical six default statuses in one
@@ -74,11 +81,12 @@ async fn create_remote_project(
         color: request.color,
     };
 
-    let row = ProjectRow::create_with_default_statuses(pool, &create).await?;
-
+    let response = ProjectRow::create_with_default_statuses(pool, &create).await?;
+    let project = Project::try_from(response.data)
+        .map_err(|e| ApiError::BadRequest(format!("project missing organization_id: {:?}", e)))?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Project::from(row),
-        txid: synthetic::txid(),
+        data: project,
+        txid: response.txid,
     })))
 }
 
@@ -88,18 +96,20 @@ async fn update_remote_project(
     Json(request): Json<UpdateProjectRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Project>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let row = ProjectRow::update(pool, project_id, &request).await?;
+    let response = ProjectRow::update(pool, project_id, &request).await?;
+    let project = Project::try_from(response.data)
+        .map_err(|e| ApiError::BadRequest(format!("project missing organization_id: {:?}", e)))?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Project::from(row),
-        txid: synthetic::txid(),
+        data: project,
+        txid: response.txid,
     })))
 }
 
 async fn delete_remote_project(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    ProjectRow::delete(pool, project_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = ProjectRow::delete(pool, project_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }

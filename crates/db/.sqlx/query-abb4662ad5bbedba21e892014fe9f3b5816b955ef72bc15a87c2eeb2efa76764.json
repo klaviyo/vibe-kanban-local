@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id       as \"id!: Uuid\",\n                      issue_id as \"issue_id!: Uuid\",\n                      tag_id   as \"tag_id!: Uuid\"\n               FROM issue_tags\n               WHERE issue_id = $1",
+  "query": "SELECT id       as \"id!: Uuid\",\n                      issue_id as \"issue_id!: Uuid\",\n                      tag_id   as \"tag_id!: Uuid\"\n               FROM issue_tags\n               WHERE issue_id = $1\n               ORDER BY id ASC",
   "describe": {
     "columns": [
       {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "9039d9ae3088358599e202fdcc120c1cc5958f49621fcfefed958f73e1a293fe"
+  "hash": "abb4662ad5bbedba21e892014fe9f3b5816b955ef72bc15a87c2eeb2efa76764"
 }

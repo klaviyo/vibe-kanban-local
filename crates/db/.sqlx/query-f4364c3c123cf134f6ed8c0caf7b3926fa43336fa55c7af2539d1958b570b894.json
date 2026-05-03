@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT host_identity, host_label\n               FROM identity_seed_marker WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "host_identity",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "host_label",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f4364c3c123cf134f6ed8c0caf7b3926fa43336fa55c7af2539d1958b570b894"
+}
