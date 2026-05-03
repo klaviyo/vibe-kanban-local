@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id       as \"id!: Uuid\",\n                      issue_id as \"issue_id!: Uuid\",\n                      user_id  as \"user_id!: Uuid\"\n               FROM issue_followers\n               WHERE issue_id = $1",
+  "query": "SELECT id       as \"id!: Uuid\",\n                      issue_id as \"issue_id!: Uuid\",\n                      user_id  as \"user_id!: Uuid\"\n               FROM issue_followers\n               WHERE issue_id = $1\n               ORDER BY id ASC",
   "describe": {
     "columns": [
       {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "0bf42e7fa8b92a0a1084884f6715b201a2504fdab830d0ee7ccd77afe96811ff"
+  "hash": "4c3fc0e2cafe0ddf69e32d7e46f4143bca55c0efa3d068c9533bc8b44a54f4d6"
 }

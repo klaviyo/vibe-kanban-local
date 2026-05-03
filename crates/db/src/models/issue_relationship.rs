@@ -103,10 +103,6 @@ impl IssueRelationship {
         .await
     }
 
-    pub async fn update(_: &SqlitePool, _id: Uuid) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!("DELETE FROM issue_relationships WHERE id = $1", id)
             .execute(pool)

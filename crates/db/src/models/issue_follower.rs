@@ -35,7 +35,8 @@ impl IssueFollower {
                       issue_id as "issue_id!: Uuid",
                       user_id  as "user_id!: Uuid"
                FROM issue_followers
-               WHERE issue_id = $1"#,
+               WHERE issue_id = $1
+               ORDER BY id ASC"#,
             issue_id,
         )
         .fetch_all(pool)
@@ -60,10 +61,6 @@ impl IssueFollower {
         )
         .fetch_one(pool)
         .await
-    }
-
-    pub async fn update(_: &SqlitePool, _id: Uuid) -> Result<(), sqlx::Error> {
-        Ok(())
     }
 
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {

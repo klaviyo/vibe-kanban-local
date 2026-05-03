@@ -68,12 +68,6 @@ impl IssueAssignee {
         .await
     }
 
-    /// Updates aren't meaningful for an assignment row (the columns are all
-    /// natural-key parts or write-once); kept for trait-shape parity.
-    pub async fn update(_: &SqlitePool, _id: Uuid) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!("DELETE FROM issue_assignees WHERE id = $1", id)
             .execute(pool)

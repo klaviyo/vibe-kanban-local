@@ -185,16 +185,41 @@ impl ProjectRow {
     }
 }
 
-impl From<ProjectRow> for wire::Project {
-    fn from(value: ProjectRow) -> Self {
-        Self {
+/// Returned when a `ProjectRow` cannot be projected to the cloud-shape wire
+/// `Project` because its `organization_id` is still `NULL` (i.e. the
+/// synthetic-organization backfill has not run for that row yet).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingOrganizationId {
+    pub project_id: Uuid,
+}
+
+impl std::fmt::Display for MissingOrganizationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "project {} has no organization_id; backfill required before exposing on the cloud surface",
+            self.project_id
+        )
+    }
+}
+
+impl std::error::Error for MissingOrganizationId {}
+
+impl TryFrom<ProjectRow> for wire::Project {
+    type Error = MissingOrganizationId;
+
+    fn try_from(value: ProjectRow) -> Result<Self, Self::Error> {
+        let organization_id = value.organization_id.ok_or(MissingOrganizationId {
+            project_id: value.id,
+        })?;
+        Ok(Self {
             id: value.id,
-            organization_id: value.organization_id.unwrap_or_default(),
+            organization_id,
             name: value.name,
             color: value.color,
             sort_order: value.sort_order as i32,
             created_at: value.created_at,
             updated_at: value.updated_at,
-        }
+        })
     }
 }

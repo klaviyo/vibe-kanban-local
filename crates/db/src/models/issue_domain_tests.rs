@@ -8,6 +8,7 @@
 use std::str::FromStr;
 
 use api_types::{
+    self as wire,
     issue::{CreateIssueRequest, IssuePriority as WireIssuePriority, UpdateIssueRequest},
     issue_assignee::CreateIssueAssigneeRequest,
     issue_comment::{CreateIssueCommentRequest, UpdateIssueCommentRequest},
@@ -18,10 +19,12 @@ use api_types::{
     issue_relationship::{CreateIssueRelationshipRequest, IssueRelationshipType as WireRelType},
     issue_tag::CreateIssueTagRequest,
     organizations::{CreateOrganizationRequest, UpdateOrganizationRequest},
+    project::UpdateProjectRequest,
     project_status::{CreateProjectStatusRequest, UpdateProjectStatusRequest},
     tag::{CreateTagRequest, UpdateTagRequest},
     workspace_issue_link::CreateWorkspaceIssueLinkRequest,
 };
+use chrono::{DateTime, TimeZone, Utc};
 use serde_json::json;
 use sqlx::{
     SqlitePool,
@@ -39,7 +42,7 @@ use super::{
     issue_tag::IssueTag,
     organization::Organization,
     organization_member::{CreateOrganizationMember, MemberRole, OrganizationMember},
-    project::{CreateProject, ProjectRow},
+    project::{CreateProject, MissingOrganizationId, ProjectRow},
     project_status::ProjectStatus,
     project_tag::ProjectTag,
     user::{CreateUser, UpdateUser, User},
@@ -724,4 +727,409 @@ async fn workspace_issue_link_rejects_unknown_issue() {
     )
     .await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn project_row_crud_round_trip() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    let by_id = ProjectRow::find_by_id(&pool, fx.project.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(by_id.id, fx.project.id);
+    assert_eq!(by_id.organization_id, Some(fx.organization.id));
+
+    let by_org = ProjectRow::find_by_organization(&pool, fx.organization.id)
+        .await
+        .unwrap();
+    assert_eq!(by_org.len(), 1);
+
+    let updated = ProjectRow::update(
+        &pool,
+        fx.project.id,
+        &UpdateProjectRequest {
+            name: Some("Renamed".into()),
+            color: None,
+            sort_order: Some(7),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(updated.name, "Renamed");
+    assert_eq!(updated.sort_order, 7);
+    // unchanged via skip-shape
+    assert_eq!(updated.color, fx.project.color);
+
+    assert_eq!(ProjectRow::delete(&pool, fx.project.id).await.unwrap(), 1);
+    assert!(
+        ProjectRow::find_by_id(&pool, fx.project.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn project_row_try_into_wire_requires_organization_id() {
+    let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let project_id = Uuid::from_u128(0xA1);
+
+    // Pre-backfill row: organization_id is still NULL.
+    let pre_backfill = ProjectRow {
+        id: project_id,
+        organization_id: None,
+        name: "p".into(),
+        color: "#000".into(),
+        sort_order: 0,
+        created_at: now,
+        updated_at: now,
+    };
+    assert_eq!(
+        wire::Project::try_from(pre_backfill).unwrap_err(),
+        MissingOrganizationId { project_id },
+    );
+
+    // Backfilled row: conversion succeeds and preserves the organization id.
+    let org_id = Uuid::from_u128(0xB2);
+    let backfilled = ProjectRow {
+        id: project_id,
+        organization_id: Some(org_id),
+        name: "p".into(),
+        color: "#000".into(),
+        sort_order: 0,
+        created_at: now,
+        updated_at: now,
+    };
+    let wire = wire::Project::try_from(backfilled).unwrap();
+    assert_eq!(wire.id, project_id);
+    assert_eq!(wire.organization_id, org_id);
+}
+
+// === Ordering regression tests for link readers ===
+
+#[tokio::test]
+async fn issue_follower_find_by_issue_orders_by_id() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx, "TST-OF").await;
+
+    // Insert in reverse-id order to prove the reader does the sort, not insert
+    // order. The follower table has a UNIQUE(issue_id, user_id) so we need
+    // distinct users.
+    let mut users: Vec<User> = Vec::with_capacity(3);
+    for i in 0u128..3 {
+        users.push(
+            User::create(
+                &pool,
+                &CreateUser {
+                    id: Uuid::from_u128(0xF1 + i),
+                    email: format!("u{}@example.com", i),
+                    first_name: None,
+                    last_name: None,
+                    username: None,
+                },
+            )
+            .await
+            .unwrap(),
+        );
+    }
+
+    let id_a = Uuid::from_u128(0x300);
+    let id_b = Uuid::from_u128(0x200);
+    let id_c = Uuid::from_u128(0x100);
+    for (id, user) in [(id_a, &users[0]), (id_b, &users[1]), (id_c, &users[2])] {
+        IssueFollower::create(
+            &pool,
+            id,
+            &CreateIssueFollowerRequest {
+                id: None,
+                issue_id: issue.id,
+                user_id: user.id,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let listed: Vec<Uuid> = IssueFollower::find_by_issue(&pool, issue.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|f| f.id)
+        .collect();
+    assert_eq!(listed, vec![id_c, id_b, id_a]);
+}
+
+#[tokio::test]
+async fn issue_tag_find_by_issue_orders_by_id() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx, "TST-OT").await;
+
+    // Need distinct project tags because issue_tags has UNIQUE(issue_id, tag_id).
+    let tag_a = ProjectTag::create(
+        &pool,
+        Uuid::from_u128(0xAA),
+        &CreateTagRequest {
+            id: None,
+            project_id: fx.project.id,
+            name: "alpha".into(),
+            color: "#100".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let tag_b = ProjectTag::create(
+        &pool,
+        Uuid::from_u128(0xBB),
+        &CreateTagRequest {
+            id: None,
+            project_id: fx.project.id,
+            name: "beta".into(),
+            color: "#200".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let tag_c = ProjectTag::create(
+        &pool,
+        Uuid::from_u128(0xCC),
+        &CreateTagRequest {
+            id: None,
+            project_id: fx.project.id,
+            name: "gamma".into(),
+            color: "#300".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let id_a = Uuid::from_u128(0x300);
+    let id_b = Uuid::from_u128(0x200);
+    let id_c = Uuid::from_u128(0x100);
+    for (id, tag_id) in [(id_a, tag_a.id), (id_b, tag_b.id), (id_c, tag_c.id)] {
+        IssueTag::create(
+            &pool,
+            id,
+            &CreateIssueTagRequest {
+                id: None,
+                issue_id: issue.id,
+                tag_id,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let listed: Vec<Uuid> = IssueTag::find_by_issue(&pool, issue.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(listed, vec![id_c, id_b, id_a]);
+}
+
+// === Wire conversion JSON fixture tests ===
+//
+// These tests pin the byte-stable JSON shape produced by the
+// `From<db::models::X> for api_types::X` boundary conversions for representative
+// row types. If a field name, casing, or null-handling rule changes, these
+// tests must be updated *intentionally* — silent regressions are blocked.
+
+fn fixed_ts(year: i32, month: u32, day: u32) -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+}
+
+// Round-trip through serde so the expected JSON uses the same RFC3339 format
+// chrono emits when serializing `DateTime<Utc>` — keeps the test independent of
+// the exact `Display` rendering rules.
+fn fixed_ts_json(year: i32, month: u32, day: u32) -> serde_json::Value {
+    serde_json::to_value(fixed_ts(year, month, day)).unwrap()
+}
+
+#[test]
+fn organization_wire_conversion_json_shape() {
+    let id = Uuid::from_u128(0x01);
+    let row = Organization {
+        id,
+        name: "Acme".into(),
+        slug: "acme".into(),
+        is_personal: false,
+        issue_prefix: "ACM".into(),
+        issue_counter: 42, // local-only; must not appear in wire shape
+        created_at: fixed_ts(2026, 1, 1),
+        updated_at: fixed_ts(2026, 1, 2),
+    };
+    let wire: wire::Organization = row.into();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "name": "Acme",
+        "slug": "acme",
+        "is_personal": false,
+        "issue_prefix": "ACM",
+        "created_at": fixed_ts_json(2026, 1, 1),
+        "updated_at": fixed_ts_json(2026, 1, 2),
+    });
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn project_wire_conversion_json_shape() {
+    let id = Uuid::from_u128(0x02);
+    let org_id = Uuid::from_u128(0x03);
+    let row = ProjectRow {
+        id,
+        organization_id: Some(org_id),
+        name: "Demo".into(),
+        color: "#abc".into(),
+        sort_order: 5,
+        created_at: fixed_ts(2026, 2, 1),
+        updated_at: fixed_ts(2026, 2, 2),
+    };
+    let wire = wire::Project::try_from(row).unwrap();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "organization_id": org_id.to_string(),
+        "name": "Demo",
+        "color": "#abc",
+        "sort_order": 5,
+        "created_at": fixed_ts_json(2026, 2, 1),
+        "updated_at": fixed_ts_json(2026, 2, 2),
+    });
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn project_status_wire_conversion_json_shape() {
+    let id = Uuid::from_u128(0x04);
+    let project_id = Uuid::from_u128(0x05);
+    let row = ProjectStatus {
+        id,
+        project_id,
+        name: "In Progress".into(),
+        color: "#0f0".into(),
+        sort_order: 2,
+        hidden: false,
+        created_at: fixed_ts(2026, 3, 1),
+    };
+    let wire: wire::ProjectStatus = row.into();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "project_id": project_id.to_string(),
+        "name": "In Progress",
+        "color": "#0f0",
+        "sort_order": 2,
+        "hidden": false,
+        "created_at": fixed_ts_json(2026, 3, 1),
+    });
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn issue_wire_conversion_json_shape_with_nulls() {
+    let id = Uuid::from_u128(0x10);
+    let project_id = Uuid::from_u128(0x11);
+    let status_id = Uuid::from_u128(0x12);
+    let row = Issue {
+        id,
+        project_id,
+        issue_number: 7,
+        simple_id: "TST-7".into(),
+        status_id,
+        title: "Hello".into(),
+        description: None,
+        priority: Some(IssuePriority::High),
+        start_date: None,
+        target_date: None,
+        completed_at: None,
+        sort_order: 1.5,
+        parent_issue_id: None,
+        parent_issue_sort_order: None,
+        creator_user_id: None,
+        extension_metadata: sqlx::types::Json(json!({"k": 1})),
+        created_at: fixed_ts(2026, 4, 1),
+        updated_at: fixed_ts(2026, 4, 2),
+    };
+    let wire: wire::Issue = row.into();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "project_id": project_id.to_string(),
+        "issue_number": 7,
+        "simple_id": "TST-7",
+        "status_id": status_id.to_string(),
+        "title": "Hello",
+        "description": null,
+        "priority": "high",
+        "start_date": null,
+        "target_date": null,
+        "completed_at": null,
+        "sort_order": 1.5,
+        "parent_issue_id": null,
+        "parent_issue_sort_order": null,
+        "extension_metadata": {"k": 1},
+        "creator_user_id": null,
+        "created_at": fixed_ts_json(2026, 4, 1),
+        "updated_at": fixed_ts_json(2026, 4, 2),
+    });
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn issue_comment_wire_conversion_json_shape() {
+    let id = Uuid::from_u128(0x20);
+    let issue_id = Uuid::from_u128(0x21);
+    let author_id = Uuid::from_u128(0x22);
+    let row = IssueComment {
+        id,
+        issue_id,
+        author_id: Some(author_id),
+        parent_id: None,
+        message: "hi".into(),
+        created_at: fixed_ts(2026, 5, 1),
+        updated_at: fixed_ts(2026, 5, 2),
+    };
+    let wire: wire::IssueComment = row.into();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "issue_id": issue_id.to_string(),
+        "author_id": author_id.to_string(),
+        "parent_id": null,
+        "message": "hi",
+        "created_at": fixed_ts_json(2026, 5, 1),
+        "updated_at": fixed_ts_json(2026, 5, 2),
+    });
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn workspace_issue_link_wire_conversion_json_shape() {
+    let id = Uuid::from_u128(0x30);
+    let workspace_id = Uuid::from_u128(0x31);
+    let issue_id = Uuid::from_u128(0x32);
+    let project_id = Uuid::from_u128(0x33);
+    let row = WorkspaceIssueLink {
+        id,
+        workspace_id,
+        issue_id,
+        project_id,
+        created_at: fixed_ts(2026, 6, 1),
+    };
+    let wire: wire::WorkspaceIssueLink = row.into();
+    let actual = serde_json::to_value(&wire).unwrap();
+    let expected = json!({
+        "id": id.to_string(),
+        "workspace_id": workspace_id.to_string(),
+        "issue_id": issue_id.to_string(),
+        "project_id": project_id.to_string(),
+        "created_at": fixed_ts_json(2026, 6, 1),
+    });
+    assert_eq!(actual, expected);
 }
