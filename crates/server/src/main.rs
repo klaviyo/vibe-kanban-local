@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
-    assets::asset_dir,
+    assets::{CutoverError, asset_dir, ensure_db_v3},
     port_file::write_port_file_with_proxy,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
 };
@@ -26,6 +26,8 @@ pub enum VibeKanbanError {
     Sqlx(#[from] SqlxError),
     #[error(transparent)]
     Deployment(#[from] DeploymentError),
+    #[error(transparent)]
+    Cutover(#[from] CutoverError),
     #[error(transparent)]
     Other(#[from] AnyhowError),
 }
@@ -55,18 +57,10 @@ async fn main() -> Result<(), VibeKanbanError> {
         std::fs::create_dir_all(asset_dir())?;
     }
 
-    // Copy old database to new location for safe downgrades
-    let old_db = asset_dir().join("db.sqlite");
-    let new_db = asset_dir().join("db.v2.sqlite");
-    if !new_db.exists() && old_db.exists() {
-        tracing::info!(
-            "Copying database to new location: {:?} -> {:?}",
-            old_db,
-            new_db
-        );
-        std::fs::copy(&old_db, &new_db).expect("Failed to copy database file");
-        tracing::info!("Database copy complete");
-    }
+    // First-launch cutover-copy from the v2 database to v3. v2 is left
+    // byte-identical as the rollback artifact; the new schema runs only
+    // against v3. Refuses if a hot rollback journal sits beside v2.
+    ensure_db_v3()?;
 
     let shutdown_token = CancellationToken::new();
 

@@ -9,7 +9,7 @@ use services::services::container::ContainerService;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use utils::assets::asset_dir;
+use utils::assets::{asset_dir, ensure_db_v3};
 
 use crate::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
@@ -158,18 +158,10 @@ pub async fn initialize_deployment(
         })?;
     }
 
-    // Copy old database to new location for safe downgrades
-    let old_db = asset_dir().join("db.sqlite");
-    let new_db = asset_dir().join("db.v2.sqlite");
-    if !new_db.exists() && old_db.exists() {
-        tracing::info!(
-            "Copying database to new location: {:?} -> {:?}",
-            old_db,
-            new_db
-        );
-        std::fs::copy(&old_db, &new_db).expect("Failed to copy database file");
-        tracing::info!("Database copy complete");
-    }
+    // First-launch cutover-copy from the v2 database to v3. v2 is left
+    // byte-identical as the rollback artifact; the new schema runs only
+    // against v3. Refuses if a hot rollback journal sits beside v2.
+    ensure_db_v3().map_err(|e| DeploymentError::Other(e.into()))?;
 
     let deployment = DeploymentImpl::new(shutdown).await?;
     migrate_legacy_attachment_directories(&deployment).await?;
