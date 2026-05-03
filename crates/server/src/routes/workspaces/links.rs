@@ -1,4 +1,3 @@
-use api_types::workspace_issue_link::CreateWorkspaceIssueLinkRequest;
 use axum::{
     Extension, Json, Router,
     extract::{Path as AxumPath, State},
@@ -20,10 +19,13 @@ pub struct LinkWorkspaceRequest {
     pub issue_id: Uuid,
 }
 
-/// Create a `workspace_issue_links` junction row linking the loaded workspace
-/// to the requested issue. Idempotent: re-linking the same workspace/issue pair
-/// is a no-op (returns the existing link's success without inserting a
-/// duplicate).
+/// Replace any existing `workspace_issue_links` rows for the workspace with a
+/// single row pointing at the requested issue. A workspace must resolve to
+/// exactly one linked issue: `get_workspace_by_local_id()` and the cloud
+/// contract both treat the relationship as singular, so a relink to a
+/// different issue must not leave the prior row behind. The model performs
+/// the delete + insert inside one transaction so callers never observe two
+/// active links.
 pub async fn link_workspace(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
@@ -31,23 +33,11 @@ pub async fn link_workspace(
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    let existing = WorkspaceIssueLink::find_by_workspace(pool, workspace.id).await?;
-    if existing
-        .iter()
-        .any(|link| link.issue_id == payload.issue_id)
-    {
-        return Ok(ResponseJson(ApiResponse::success(())));
-    }
-
-    WorkspaceIssueLink::create(
+    WorkspaceIssueLink::replace_for_workspace(
         pool,
-        Uuid::new_v4(),
-        &CreateWorkspaceIssueLinkRequest {
-            id: None,
-            workspace_id: workspace.id,
-            issue_id: payload.issue_id,
-            project_id: payload.project_id,
-        },
+        workspace.id,
+        payload.issue_id,
+        payload.project_id,
     )
     .await?;
 
@@ -63,10 +53,7 @@ pub async fn unlink_workspace(
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    let links = WorkspaceIssueLink::find_by_workspace(pool, workspace_id).await?;
-    for link in links {
-        WorkspaceIssueLink::delete(pool, link.id).await?;
-    }
+    WorkspaceIssueLink::delete_by_workspace(pool, workspace_id).await?;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }

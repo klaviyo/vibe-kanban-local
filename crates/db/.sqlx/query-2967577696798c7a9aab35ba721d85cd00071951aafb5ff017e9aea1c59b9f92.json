@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id                  as \"id!: Uuid\",\n                      organization_id     as \"organization_id!: Uuid\",\n                      invited_by_user_id  as \"invited_by_user_id: Uuid\",\n                      email,\n                      role                as \"role!: MemberRole\",\n                      status              as \"status!: InvitationStatus\",\n                      token,\n                      expires_at          as \"expires_at!: DateTime<Utc>\",\n                      created_at          as \"created_at!: DateTime<Utc>\",\n                      updated_at          as \"updated_at!: DateTime<Utc>\"\n               FROM organization_invitations\n               WHERE organization_id = $1 AND status = 'pending'\n               ORDER BY created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "organization_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "invited_by_user_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "email",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "role!: MemberRole",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!: InvitationStatus",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "token",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "expires_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2967577696798c7a9aab35ba721d85cd00071951aafb5ff017e9aea1c59b9f92"
+}

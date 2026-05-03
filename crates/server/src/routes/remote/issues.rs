@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use db::models::issue::{CreateIssue, Issue as IssueRow, IssuePriority};
+use db::models::issue::{Issue as IssueRow, IssuePriority};
 use deployment::Deployment;
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -80,20 +80,12 @@ async fn create_issue(
     let id = request.id.unwrap_or_else(Uuid::new_v4);
     let user = synthetic::local_user(&deployment).await?;
 
-    // Compute next issue_number / simple_id by scanning existing issues for the project.
-    let existing = IssueRow::find_by_project(pool, request.project_id).await?;
-    let next_number = existing.iter().map(|i| i.issue_number).max().unwrap_or(0) + 1;
-    let simple_id = format!("VK-{}", next_number);
-
-    let create = CreateIssue {
-        id,
-        issue_number: next_number,
-        simple_id,
-        creator_user_id: Some(user.id),
-        request: request.clone(),
-    };
-
-    let issue = IssueRow::create(pool, &create).await?;
+    // Cloud contract: `simple_id` is org-scoped via `organizations.issue_prefix`
+    // + `organizations.issue_counter`, atomically incremented in the same
+    // transaction as the insert. The model handles the lookup, increment, and
+    // insert so a concurrent second project in the same org cannot emit a
+    // duplicate `issue_number` or the wrong prefix.
+    let issue = IssueRow::create_with_org_short_id(pool, id, &request, Some(user.id)).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
         data: Issue::from(issue),
         txid: synthetic::txid(),

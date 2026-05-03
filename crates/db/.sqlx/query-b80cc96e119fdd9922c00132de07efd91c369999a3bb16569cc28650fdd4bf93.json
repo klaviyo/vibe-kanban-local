@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT organization_id as \"organization_id: Uuid\"\n               FROM projects WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "organization_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b80cc96e119fdd9922c00132de07efd91c369999a3bb16569cc28650fdd4bf93"
+}

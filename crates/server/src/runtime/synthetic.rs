@@ -19,11 +19,9 @@ use api_types::{CreateOrganizationRequest, MemberRole as WireMemberRole, Profile
 use db::models::{
     organization::Organization,
     organization_member::{CreateOrganizationMember, MemberRole, OrganizationMember},
-    project_status::ProjectStatus,
     user::{CreateUser, User},
 };
 use deployment::Deployment;
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::DeploymentImpl;
@@ -35,17 +33,6 @@ const LOCAL_NAMESPACE: Uuid = Uuid::from_bytes([
 ]);
 
 const SYNTHETIC_EMAIL_DOMAIN: &str = "vibe-kanban.local";
-
-/// Default project_statuses seeded when a project is created. Order matches
-/// the cloud's seeder so the kanban board renders identically.
-pub const DEFAULT_PROJECT_STATUSES: [(&str, &str, bool); 6] = [
-    ("Backlog", "#94a3b8", false),
-    ("Todo", "#3b82f6", false),
-    ("In Progress", "#f59e0b", false),
-    ("In Review", "#a855f7", false),
-    ("Done", "#22c55e", false),
-    ("Cancelled", "#ef4444", true),
-];
 
 /// Synthesizes a strictly-monotonic transaction ID for the
 /// `MutationResponse<T> { data, txid }` envelope. Microseconds since the unix
@@ -161,29 +148,6 @@ pub async fn synthetic_profile(
         email: user.email.clone(),
         providers: Vec::new(),
     })
-}
-
-/// Seeds the canonical six default statuses for a freshly-created project.
-/// Caller must run this in the same transaction that inserted the project so
-/// the project never appears statusless.
-pub async fn seed_default_project_statuses(
-    pool: &SqlitePool,
-    project_id: Uuid,
-) -> Result<Vec<ProjectStatus>, sqlx::Error> {
-    let mut statuses = Vec::with_capacity(DEFAULT_PROJECT_STATUSES.len());
-    for (idx, (name, color, hidden)) in DEFAULT_PROJECT_STATUSES.iter().enumerate() {
-        let request = api_types::project_status::CreateProjectStatusRequest {
-            id: None,
-            project_id,
-            name: (*name).to_string(),
-            color: (*color).to_string(),
-            sort_order: idx as i32,
-            hidden: *hidden,
-        };
-        let status = ProjectStatus::create(pool, Uuid::new_v4(), &request).await?;
-        statuses.push(status);
-    }
-    Ok(statuses)
 }
 
 /// Wire-shape helper: convert a DB `Organization` plus a role into the

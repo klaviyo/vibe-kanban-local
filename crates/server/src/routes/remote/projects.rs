@@ -57,8 +57,10 @@ async fn get_remote_project(
     Ok(ResponseJson(ApiResponse::success(Project::from(row))))
 }
 
-/// Creates a project and seeds the canonical six default statuses in the same
-/// transaction. The project must never appear statusless.
+/// Creates a project and seeds the canonical six default statuses in one
+/// transaction. The project must never appear statusless: atomicity is
+/// enforced inside `ProjectRow::create_with_default_statuses` so a status
+/// insert failure rolls the project back.
 async fn create_remote_project(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateProjectRequest>,
@@ -72,8 +74,7 @@ async fn create_remote_project(
         color: request.color,
     };
 
-    let row = ProjectRow::create(pool, &create).await?;
-    synthetic::seed_default_project_statuses(pool, row.id).await?;
+    let row = ProjectRow::create_with_default_statuses(pool, &create).await?;
 
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
         data: Project::from(row),

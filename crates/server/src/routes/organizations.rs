@@ -13,7 +13,9 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, get, patch, post},
 };
+use chrono::{Duration, Utc};
 use db::models::{
+    invitation::{AcceptError, CreateInvitation, Invitation},
     organization::Organization,
     organization_member::{MemberRole, OrganizationMember},
     user::User,
@@ -23,6 +25,10 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+
+/// Cloud invitations expire after 7 days; mirror that here so a local-mode
+/// `accept` flow rejects stale tokens with the same "expired" semantics.
+const INVITATION_TTL_DAYS: i64 = 7;
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -159,55 +165,114 @@ async fn delete_organization(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// Local mode does not support invitations; the table is omitted from the
-// schema. We keep the URL surface so any pre-existing client probe receives a
-// well-formed BadRequest instead of a 404 from the router.
+// Local invitations are stored in `organization_invitations` (mirrors the
+// cloud's table). We don't send invitation emails locally — the synthetic
+// user flow accepts tokens directly — but the route surface (`POST/GET
+// /organizations/{id}/invitations`, `POST .../revoke`, `GET
+// /invitations/{token}`, `POST /invitations/{token}/accept`) keeps
+// pre-cutover frontend / MCP callers working unchanged.
 
 async fn create_invitation(
-    State(_deployment): State<DeploymentImpl>,
-    Path(_org_id): Path<Uuid>,
-    Json(_request): Json<CreateInvitationRequest>,
+    State(deployment): State<DeploymentImpl>,
+    Path(org_id): Path<Uuid>,
+    Json(request): Json<CreateInvitationRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateInvitationResponse>>, ApiError> {
-    Err(ApiError::BadRequest(
-        "Invitations are not supported in local mode".to_string(),
-    ))
+    let pool = &deployment.db().pool;
+    let user = synthetic::local_user(&deployment).await?;
+
+    let token = Uuid::new_v4().to_string();
+    let expires_at = Utc::now() + Duration::days(INVITATION_TTL_DAYS);
+    let role = MemberRole::from(request.role);
+
+    let invitation = Invitation::create(
+        pool,
+        &CreateInvitation {
+            id: Uuid::new_v4(),
+            organization_id: org_id,
+            invited_by_user_id: Some(user.id),
+            email: &request.email,
+            role,
+            token: &token,
+            expires_at,
+        },
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(
+        CreateInvitationResponse {
+            invitation: invitation.into_wire(),
+        },
+    )))
 }
 
 async fn list_invitations(
-    State(_deployment): State<DeploymentImpl>,
-    Path(_org_id): Path<Uuid>,
+    State(deployment): State<DeploymentImpl>,
+    Path(org_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<ListInvitationsResponse>>, ApiError> {
-    Err(ApiError::BadRequest(
-        "Invitations are not supported in local mode".to_string(),
-    ))
+    let pool = &deployment.db().pool;
+    let invitations = Invitation::list_pending_by_organization(pool, org_id).await?;
+    let invitations = invitations.into_iter().map(Invitation::into_wire).collect();
+    Ok(ResponseJson(ApiResponse::success(
+        ListInvitationsResponse { invitations },
+    )))
 }
 
 async fn get_invitation(
-    State(_deployment): State<DeploymentImpl>,
-    Path(_token): Path<String>,
+    State(deployment): State<DeploymentImpl>,
+    Path(token): Path<String>,
 ) -> Result<ResponseJson<ApiResponse<GetInvitationResponse>>, ApiError> {
-    Err(ApiError::BadRequest(
-        "Invitations are not supported in local mode".to_string(),
-    ))
+    let pool = &deployment.db().pool;
+    let invitation = Invitation::find_by_token(pool, &token)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Invitation not found".to_string()))?;
+
+    let organization = Organization::find_by_id(pool, invitation.organization_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Organization not found".to_string()))?;
+
+    Ok(ResponseJson(ApiResponse::success(GetInvitationResponse {
+        id: invitation.id,
+        organization_slug: organization.slug,
+        role: invitation.role.into(),
+        expires_at: invitation.expires_at,
+    })))
 }
 
 async fn revoke_invitation(
-    State(_deployment): State<DeploymentImpl>,
-    Path(_org_id): Path<Uuid>,
-    Json(_payload): Json<RevokeInvitationRequest>,
+    State(deployment): State<DeploymentImpl>,
+    Path(org_id): Path<Uuid>,
+    Json(payload): Json<RevokeInvitationRequest>,
 ) -> Result<StatusCode, ApiError> {
-    Err(ApiError::BadRequest(
-        "Invitations are not supported in local mode".to_string(),
-    ))
+    let pool = &deployment.db().pool;
+    Invitation::revoke(pool, org_id, payload.invitation_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn accept_invitation(
-    State(_deployment): State<DeploymentImpl>,
-    Path(_invitation_token): Path<String>,
+    State(deployment): State<DeploymentImpl>,
+    Path(invitation_token): Path<String>,
 ) -> Result<ResponseJson<ApiResponse<AcceptInvitationResponse>>, ApiError> {
-    Err(ApiError::BadRequest(
-        "Invitations are not supported in local mode".to_string(),
-    ))
+    let pool = &deployment.db().pool;
+    let user = synthetic::local_user(&deployment).await?;
+
+    let accepted = Invitation::accept(pool, &invitation_token, user.id)
+        .await
+        .map_err(|err| match err {
+            AcceptError::NotFound => ApiError::BadRequest("Invitation not found".to_string()),
+            AcceptError::AlreadyResolved => {
+                ApiError::BadRequest("Invitation already resolved".to_string())
+            }
+            AcceptError::Expired => ApiError::BadRequest("Invitation has expired".to_string()),
+            AcceptError::Database(db) => ApiError::Database(db),
+        })?;
+
+    Ok(ResponseJson(ApiResponse::success(
+        AcceptInvitationResponse {
+            organization_id: accepted.organization_id.to_string(),
+            organization_slug: accepted.organization_slug,
+            role: accepted.role.into(),
+        },
+    )))
 }
 
 async fn list_members(

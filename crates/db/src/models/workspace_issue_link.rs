@@ -93,6 +93,65 @@ impl WorkspaceIssueLink {
         .await
     }
 
+    /// Replace any existing rows for `workspace_id` with a single row pointing
+    /// at the requested issue. Each workspace has exactly one active linked
+    /// issue: the cloud contract treats the relationship as singular and
+    /// `get_workspace_by_local_id()` consumes only the first row, so a relink
+    /// to a different issue must not leave stale rows behind. The delete and
+    /// insert run in one transaction so callers never observe two active
+    /// links.
+    pub async fn replace_for_workspace(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        issue_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<Self, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+
+        sqlx::query!(
+            "DELETE FROM workspace_issue_links WHERE workspace_id = $1",
+            workspace_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let id = Uuid::new_v4();
+        let row = sqlx::query_as!(
+            WorkspaceIssueLink,
+            r#"INSERT INTO workspace_issue_links (id, workspace_id, issue_id, project_id)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id           as "id!: Uuid",
+                         workspace_id as "workspace_id!: Uuid",
+                         issue_id     as "issue_id!: Uuid",
+                         project_id   as "project_id!: Uuid",
+                         created_at   as "created_at!: DateTime<Utc>""#,
+            id,
+            workspace_id,
+            issue_id,
+            project_id,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    /// Delete every link row for the given workspace. Idempotent: returns the
+    /// number of rows actually removed.
+    pub async fn delete_by_workspace(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            "DELETE FROM workspace_issue_links WHERE workspace_id = $1",
+            workspace_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn update(_: &SqlitePool, _id: Uuid) -> Result<(), sqlx::Error> {
         Ok(())
     }
