@@ -1288,3 +1288,71 @@ async fn issue_create_concurrent_no_gaps_no_duplicates() {
         );
     }
 }
+
+/// Upgraded local databases that ran an older revision of
+/// `20260502120000_create_organizations.sql` still carry the legacy
+/// `DEFAULT 'ISS'` for `issue_prefix`. `Organization::create()` must not
+/// depend on that schema default and must mint `VK` regardless.
+#[tokio::test]
+async fn organization_create_writes_vk_prefix_even_with_legacy_schema_default() {
+    let pool = make_pool().await;
+
+    // Rebuild `organizations` with the pre-fix legacy default, simulating a
+    // local DB that ran an older revision of the historical migration. The
+    // `writable_schema` UPDATE+REPLACE trick is unreliable across SQLite
+    // versions/quoting; rebuilding the table inline gives us a deterministic
+    // legacy schema.
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP TABLE organizations")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"CREATE TABLE organizations (
+               id             BLOB PRIMARY KEY,
+               name           TEXT NOT NULL,
+               slug           TEXT NOT NULL UNIQUE,
+               is_personal    BOOLEAN NOT NULL DEFAULT FALSE,
+               issue_prefix   TEXT NOT NULL DEFAULT 'ISS',
+               issue_counter  INTEGER NOT NULL DEFAULT 0,
+               created_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+               updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+           )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Confirm the legacy default is active.
+    let legacy_default: String = sqlx::query_scalar(
+        r#"SELECT dflt_value FROM pragma_table_info('organizations')
+           WHERE name = 'issue_prefix'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(legacy_default, "'ISS'");
+
+    let org = Organization::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateOrganizationRequest {
+            name: "Upgraded Org".into(),
+            slug: format!("upgraded-{}", Uuid::new_v4().simple()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.issue_prefix, "VK",
+        "Organization::create() must write the VK prefix explicitly so \
+         upgraded local DBs do not inherit the legacy ISS default",
+    );
+}

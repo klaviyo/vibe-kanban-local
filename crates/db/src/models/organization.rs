@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
+/// Default `issue_prefix` written for newly-created organizations on the local
+/// path. Matches the schema-level default in
+/// `migrations/20260502120000_create_organizations.sql`, but is written
+/// explicitly so that local databases that ran an older revision of that
+/// migration (which defaulted to `'ISS'`) still mint new orgs with the
+/// contracted prefix.
+pub const DEFAULT_ISSUE_PREFIX: &str = "VK";
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Organization {
     pub id: Uuid,
@@ -83,8 +91,8 @@ impl Organization {
     ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Organization,
-            r#"INSERT INTO organizations (id, name, slug)
-               VALUES ($1, $2, $3)
+            r#"INSERT INTO organizations (id, name, slug, issue_prefix)
+               VALUES ($1, $2, $3, $4)
                RETURNING id          as "id!: Uuid",
                          name,
                          slug,
@@ -96,6 +104,7 @@ impl Organization {
             id,
             data.name,
             data.slug,
+            DEFAULT_ISSUE_PREFIX,
         )
         .fetch_one(pool)
         .await
