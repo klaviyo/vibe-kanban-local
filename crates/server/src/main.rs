@@ -5,9 +5,10 @@ use server::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
 };
 use services::services::container::ContainerService;
-use sqlx::Error as SqlxError;
+use sqlx::{Error as SqlxError, SqlitePool};
 use strip_ansi_escapes::strip;
 use thiserror::Error;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -169,12 +170,12 @@ async fn main() -> Result<(), VibeKanbanError> {
     let proxy_server = axum::serve(proxy_listener, proxy_router)
         .with_graceful_shutdown(async move { proxy_shutdown.cancelled().await });
 
-    let main_handle = tokio::spawn(async move {
+    let mut main_handle = tokio::spawn(async move {
         if let Err(e) = main_server.await {
             tracing::error!("Main server error: {}", e);
         }
     });
-    let proxy_handle = tokio::spawn(async move {
+    let mut proxy_handle = tokio::spawn(async move {
         if let Err(e) = proxy_server.await {
             tracing::error!("Preview proxy error: {}", e);
         }
@@ -182,17 +183,25 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     relay_registration::spawn_relay(&deployment).await;
 
+    // Borrow handles via `&mut` so they survive the select and can be awaited
+    // again inside `perform_cleanup_actions` for full drain.
     tokio::select! {
         _ = shutdown_signal() => {
             tracing::info!("Shutdown signal received");
         }
-        _ = main_handle => {}
-        _ = proxy_handle => {}
+        res = &mut main_handle => {
+            if let Err(e) = res {
+                tracing::error!("Main server task ended early: {}", e);
+            }
+        }
+        res = &mut proxy_handle => {
+            if let Err(e) = res {
+                tracing::error!("Preview proxy task ended early: {}", e);
+            }
+        }
     }
 
-    shutdown_token.cancel();
-
-    perform_cleanup_actions(&deployment).await;
+    perform_cleanup_actions(&deployment, shutdown_token, vec![main_handle, proxy_handle]).await;
 
     Ok(())
 }
@@ -233,10 +242,181 @@ pub async fn shutdown_signal() {
     }
 }
 
-pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
-    deployment
-        .container()
-        .kill_all_running_processes()
-        .await
-        .expect("Failed to cleanly kill running execution processes");
+/// Gracefully shut down the running server.
+///
+/// Cancels `shutdown_token` to begin axum's graceful shutdown, waits for
+/// in-flight HTTP handlers to drain, drains the SQLx pool so in-flight
+/// transactions either commit or roll back cleanly, and finally kills any
+/// running execution processes. Errors from the process kill are logged
+/// rather than panicked so the rest of cleanup completes.
+pub async fn perform_cleanup_actions(
+    deployment: &DeploymentImpl,
+    shutdown_token: CancellationToken,
+    server_handles: Vec<JoinHandle<()>>,
+) {
+    graceful_drain(&shutdown_token, server_handles, &deployment.db().pool).await;
+
+    if let Err(e) = deployment.container().kill_all_running_processes().await {
+        tracing::error!("Failed to cleanly kill running execution processes: {}", e);
+    }
+}
+
+/// Drains the HTTP servers and database pool in order. Cancels the shutdown
+/// token to start axum's graceful shutdown, awaits the supplied server task
+/// handles (so axum finishes draining in-flight requests), then closes the
+/// SQLx pool (which waits for in-flight transactions to release their
+/// connections, allowing SQLite to finalize and remove its rollback journal).
+async fn graceful_drain(
+    shutdown_token: &CancellationToken,
+    server_handles: Vec<JoinHandle<()>>,
+    pool: &SqlitePool,
+) {
+    shutdown_token.cancel();
+
+    for handle in server_handles {
+        if let Err(e) = handle.await {
+            tracing::warn!("Server task ended with error: {}", e);
+        }
+    }
+
+    pool.close().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        path::PathBuf,
+        str::FromStr,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::{Duration, Instant},
+    };
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+    use tempfile::TempDir;
+    use tokio::sync::Notify;
+
+    use super::*;
+
+    async fn open_pool(path: &PathBuf) -> SqlitePool {
+        let url = format!("sqlite://{}", path.to_string_lossy());
+        let opts = SqliteConnectOptions::from_str(&url)
+            .unwrap()
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Delete);
+        SqlitePool::connect_with(opts).await.unwrap()
+    }
+
+    fn journal_path(db_path: &PathBuf) -> PathBuf {
+        let mut name = db_path.file_name().unwrap().to_os_string();
+        name.push("-journal");
+        db_path.with_file_name(name)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn graceful_drain_waits_for_inflight_transaction_and_leaves_no_journal() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let url = format!("sqlite://{}", db_path.to_string_lossy());
+        let opts = SqliteConnectOptions::from_str(&url)
+            .unwrap()
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Delete);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE t (n INTEGER)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let writer_started = Arc::new(Notify::new());
+        let writer_started_signal = writer_started.clone();
+        let writer_pool = pool.clone();
+        let writer = tokio::spawn(async move {
+            let mut tx = writer_pool.begin().await.unwrap();
+            sqlx::query("INSERT INTO t (n) VALUES (1)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            writer_started_signal.notify_one();
+            // Hold the transaction long enough that graceful_drain must wait.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            tx.commit().await.unwrap();
+        });
+
+        writer_started.notified().await;
+
+        let token = CancellationToken::new();
+        let started = Instant::now();
+        graceful_drain(&token, vec![], &pool).await;
+        let elapsed = started.elapsed();
+
+        writer.await.unwrap();
+
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "drain returned before transaction finished: {:?}",
+            elapsed
+        );
+        assert!(pool.is_closed(), "pool should be closed after drain");
+        assert!(
+            !journal_path(&db_path).exists(),
+            "rollback journal should not remain next to the database file"
+        );
+    }
+
+    #[tokio::test]
+    async fn graceful_drain_cancels_token_and_awaits_handles() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let pool = open_pool(&db_path).await;
+
+        let token = CancellationToken::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let token = token.clone();
+            let counter = counter.clone();
+            handles.push(tokio::spawn(async move {
+                token.cancelled().await;
+                // Simulate axum's request-drain delay after cancellation.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                counter.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+
+        graceful_drain(&token, handles, &pool).await;
+
+        assert!(token.is_cancelled(), "shutdown token should be cancelled");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "drain should await every server handle to completion"
+        );
+    }
+
+    #[tokio::test]
+    async fn graceful_drain_swallows_panicking_server_handle() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let pool = open_pool(&db_path).await;
+
+        let token = CancellationToken::new();
+        let panicking = tokio::spawn(async { panic!("simulated server crash") });
+
+        // A panic in a server task must not prevent the rest of the drain
+        // (notably the DB pool close) from running.
+        graceful_drain(&token, vec![panicking], &pool).await;
+
+        assert!(
+            pool.is_closed(),
+            "pool should still close after handle panic"
+        );
+    }
 }
