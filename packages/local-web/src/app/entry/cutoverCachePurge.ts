@@ -13,6 +13,35 @@ const ELECTRIC_LOCAL_STORAGE_KEYS = [
 // stores wa-sqlite and Electric integrations seed by default.
 const ELECTRIC_IDB_NAME_PATTERNS: RegExp[] = [/wa[-_]?sqlite/i, /electric/i];
 
+// Speculative list of IndexedDB names used by the prior Electric / wa-sqlite
+// integration. We only consult this list on browsers where
+// indexedDB.databases() is undefined (Firefox, older Safari) — there we have
+// no way to enumerate, so we attempt deletes against each known candidate
+// and treat "no such database" as a successful no-op.
+//
+// These names mirror the patterns in ELECTRIC_IDB_NAME_PATTERNS and the
+// concrete defaults used by the IDBBatchAtomicVFS / IDBVersionedVFS examples
+// shipped with wa-sqlite plus the @tanstack/electric-db-collection store
+// names. They are speculative — if a pre-cutover install is found to use a
+// different name, append it here. Adding a never-existed name is harmless
+// (deleteDatabase resolves successfully on a missing entry).
+const ELECTRIC_IDB_NAME_FALLBACK: string[] = [
+  // wa-sqlite VFS defaults seen in src/examples/IDBBatchAtomicVFS.js et al.
+  'wa-sqlite',
+  'wa-sqlite-vfs',
+  'wa-sqlite-files',
+  // Common app-named SQLite stores the cutover left behind.
+  'vk-sqlite',
+  'vk-sqlite-cache',
+  'vibe-sqlite',
+  // Electric sync layer defaults.
+  'electric',
+  'electric-sql',
+  'electricsql',
+  'electric-cache',
+  'electric-shapes',
+];
+
 function isStorageAvailable(): boolean {
   try {
     return typeof localStorage !== 'undefined';
@@ -68,13 +97,20 @@ function deleteIndexedDb(name: string): Promise<boolean> {
 async function deleteElectricIndexedDbs(): Promise<boolean> {
   if (typeof indexedDB === 'undefined') return true;
 
-  // indexedDB.databases() is unsupported on Firefox and older Safari; in that
-  // case we no-op rather than guess at names — the sentinel will still mark
-  // the install as purged so we don't loop forever.
+  // indexedDB.databases() is unsupported on Firefox and older Safari. When
+  // missing we cannot enumerate, so fall through to the explicit fallback
+  // list — guessing a name and asking deleteDatabase to drop it is safe
+  // (a no-op when the name doesn't exist) and is the only way to honor the
+  // "stale rows from prior Electric era wiped" guarantee on those engines.
   const factory = indexedDB as IDBFactory & {
     databases?: () => Promise<IDBDatabaseInfo[]>;
   };
-  if (typeof factory.databases !== 'function') return true;
+  if (typeof factory.databases !== 'function') {
+    const results = await Promise.all(
+      ELECTRIC_IDB_NAME_FALLBACK.map(deleteIndexedDb)
+    );
+    return results.every((ok) => ok);
+  }
 
   let infos: IDBDatabaseInfo[] = [];
   try {

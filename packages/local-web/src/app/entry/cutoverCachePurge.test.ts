@@ -189,4 +189,42 @@ describe('purgePriorElectricCacheOnce', () => {
     // re-attempt forever.
     expect(localStorageStub.getItem(SENTINEL_KEY)).not.toBeNull();
   });
+
+  it('falls back to explicit-name deletes when indexedDB.databases() is undefined (Firefox / older Safari)', async () => {
+    // Seed two databases that match the explicit fallback names. We do this
+    // BEFORE removing factory.databases so seedIndexedDb can register them.
+    await seedIndexedDb('wa-sqlite');
+    await seedIndexedDb('electric-sql');
+    await seedIndexedDb('unrelated-db');
+
+    // Now wrap the factory so .databases() is undefined (mimicking Firefox /
+    // older Safari) but deleteDatabase + open still work. This is the
+    // critical surface the fallback must cover: HIGH #12 noted that the
+    // pre-fix code wrote the sentinel without enumerating wa-sqlite databases
+    // on browsers without databases(), bypassing the wipe.
+    const realFactory = globalThis.indexedDB;
+    const proxiedFactory: IDBFactory = new Proxy(realFactory, {
+      get(target, prop, receiver) {
+        if (prop === 'databases') return undefined;
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    globalThis.indexedDB = proxiedFactory;
+
+    // Sanity: confirm the proxy hides databases() while delete still works.
+    expect(
+      (proxiedFactory as IDBFactory & { databases?: unknown }).databases
+    ).toBeUndefined();
+
+    const { purgePriorElectricCacheOnce } = await import('./cutoverCachePurge');
+    await purgePriorElectricCacheOnce();
+
+    // Restore the un-proxied factory so listIndexedDbNames() can enumerate.
+    globalThis.indexedDB = realFactory;
+    const remaining = await listIndexedDbNames();
+    expect(remaining.sort()).toEqual(['unrelated-db']);
+
+    expect(localStorageStub.getItem(SENTINEL_KEY)).not.toBeNull();
+  });
 });
