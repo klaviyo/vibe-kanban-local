@@ -3,8 +3,9 @@
 //! On first launch this writes the cloud-shape singleton rows the local
 //! deployment requires: one organization, one user, the membership linking
 //! them, an "Initial Project" so the cloud invariant *every organization has at
-//! least one project* holds, and the nine project_statuses the
-//! `two_stage_coding` pipeline relies on. The whole seed runs inside a single
+//! least one project* holds, and the six default project_statuses that match
+//! the VK product default (and the contract `Project::create_with_default_statuses`
+//! enforces for engineer-created projects). The whole seed runs inside a single
 //! transaction so partial failure rolls back cleanly and a retry is safe.
 //!
 //! On every subsequent launch the seeder is a strict no-op — the
@@ -36,18 +37,20 @@ const IDENTITY_NAMESPACE: Uuid = Uuid::from_bytes([
 ]);
 
 /// Default project_statuses seeded for the Initial Project. The set matches the
-/// `two_stage_coding` pipeline yaml consumed by vk-conductor; the wire format
-/// stays unchanged. Order is `(name, color, sort_order, hidden)`.
+/// VK product default exactly as `Project::create_with_default_statuses` seeds
+/// for engineer-created projects, so case-insensitive name resolution bridges
+/// across both seed paths and pipeline-state mapping is consistent regardless
+/// of which path produced the project. Order is `(name, color, sort_order, hidden)`.
+///
+/// Pipeline-specific column sets (e.g. `two_stage_coding`) are configured at
+/// the pipeline-state-to-VK-column mapping layer, not at this product default.
 pub const DEFAULT_PROJECT_STATUSES: &[(&str, &str, i64, bool)] = &[
-    ("Backlog", "220 9% 46%", 0, true),
-    ("To do", "217 91% 60%", 1, false),
-    ("Implement", "38 92% 50%", 2, false),
-    ("Review", "258 90% 66%", 3, false),
-    ("Monitor", "199 89% 48%", 4, false),
-    ("PR Candidate", "271 91% 65%", 5, false),
-    ("PR Finishing", "292 84% 61%", 6, false),
-    ("PR Ready", "142 71% 45%", 7, false),
-    ("Cancelled", "0 84% 60%", 8, true),
+    ("Backlog", "#94a3b8", 0, false),
+    ("Todo", "#3b82f6", 1, false),
+    ("In Progress", "#f59e0b", 2, false),
+    ("In Review", "#a855f7", 3, false),
+    ("Done", "#22c55e", 4, false),
+    ("Cancelled", "#ef4444", 5, true),
 ];
 
 /// Slug + name + email used for the synthetic singletons. All fields are
@@ -454,7 +457,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_launch_creates_singleton_rows_and_nine_statuses() {
+    async fn first_launch_creates_singleton_rows_and_default_statuses() {
         let pool = make_pool().await;
         let seeder =
             IdentitySeeder::with_host_identity(&pool, "test-host-1".into(), "label-1".into());
