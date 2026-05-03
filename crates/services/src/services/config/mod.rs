@@ -65,7 +65,7 @@ fn backup_v8_audit_artifact_if_needed(config_path: &PathBuf, raw_config: &str) {
         return;
     }
 
-    let backup_path = config_path.with_extension("v8.bak");
+    let backup_path = audit_artifact_path(config_path);
     if backup_path.exists() {
         return;
     }
@@ -81,6 +81,15 @@ fn backup_v8_audit_artifact_if_needed(config_path: &PathBuf, raw_config: &str) {
             e
         ),
     }
+}
+
+/// Build the audit artifact path by appending the suffix so the original
+/// filename (including its extension) is preserved — e.g. `config.json`
+/// becomes `config.json.v8.bak`.
+fn audit_artifact_path(config_path: &PathBuf) -> PathBuf {
+    let mut path = config_path.as_os_str().to_owned();
+    path.push(".v8.bak");
+    PathBuf::from(path)
 }
 
 fn is_v8_raw_config(raw_config: &str) -> bool {
@@ -108,17 +117,17 @@ pub async fn save_config_to_file(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
     use super::*;
 
-    fn write_temp_file(contents: &str) -> NamedTempFile {
-        let mut file = NamedTempFile::new().expect("create temp file");
-        file.write_all(contents.as_bytes()).expect("write contents");
-        file.flush().expect("flush");
-        file
+    /// Write `contents` to a `config.json` file inside a tempdir so the
+    /// audit artifact path can be asserted against a stable, realistic filename.
+    fn write_named_config(contents: &str) -> (TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, contents).expect("write config");
+        (dir, path)
     }
 
     #[tokio::test]
@@ -168,15 +177,15 @@ mod tests {
             "relay_enabled": true,
             "host_nickname": null
         }"#;
-        let file = write_temp_file(v8_raw);
-        let path = file.path().to_path_buf();
+        let (_dir, path) = write_named_config(v8_raw);
 
         let config = load_config_from_file(&path).await;
         assert_eq!(config.config_version, "v9");
         assert!(!config.analytics_enabled);
         assert!(!config.relay_enabled);
 
-        let backup_path = path.with_extension("v8.bak");
+        let backup_path = path.with_file_name("config.json.v8.bak");
+        assert_eq!(audit_artifact_path(&path), backup_path);
         let backup = std::fs::read_to_string(&backup_path).expect("audit backup written");
         assert!(backup.contains("\"config_version\": \"v8\""));
     }
@@ -185,13 +194,12 @@ mod tests {
     async fn loading_existing_v9_skips_backup() {
         let original = Config::default();
         let raw = serde_json::to_string_pretty(&original).expect("serialize v9");
-        let file = write_temp_file(&raw);
-        let path = file.path().to_path_buf();
+        let (_dir, path) = write_named_config(&raw);
 
         let config = load_config_from_file(&path).await;
         assert_eq!(config.config_version, "v9");
 
-        let backup_path = path.with_extension("v8.bak");
+        let backup_path = audit_artifact_path(&path);
         assert!(
             !backup_path.exists(),
             "no audit backup should be written for already-v9 files",
