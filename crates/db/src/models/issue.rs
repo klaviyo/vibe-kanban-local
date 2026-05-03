@@ -1,5 +1,5 @@
 use api_types::{
-    self as wire,
+    self as wire, DeleteResponse, MutationResponse,
     issue::{CreateIssueRequest, UpdateIssueRequest},
 };
 use chrono::{DateTime, Utc};
@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool, Type};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "issue_priority", rename_all = "snake_case")]
@@ -168,12 +170,16 @@ impl Issue {
         .await
     }
 
-    pub async fn create(pool: &SqlitePool, data: &CreateIssue) -> Result<Self, sqlx::Error> {
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateIssue,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let req = &data.request;
         let priority: Option<IssuePriority> = req.priority.map(IssuePriority::from);
         let extension_metadata = sqlx::types::Json(req.extension_metadata.clone());
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             Issue,
             r#"INSERT INTO issues (
                    id, project_id, issue_number, simple_id, status_id, title,
@@ -220,15 +226,18 @@ impl Issue {
             data.creator_user_id,
             extension_metadata,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateIssueRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_status_id = data.status_id.is_some();
         let status_id_value = data.status_id;
         let update_title = data.title.is_some();
@@ -252,7 +261,8 @@ impl Issue {
         let update_extension_metadata = data.extension_metadata.is_some();
         let extension_metadata_value = data.extension_metadata.clone().map(sqlx::types::Json);
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             Issue,
             r#"UPDATE issues
                SET status_id                = CASE WHEN $2  THEN $3  ELSE status_id END,
@@ -310,15 +320,21 @@ impl Issue {
             update_extension_metadata,
             extension_metadata_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM issues WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM issues WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 
