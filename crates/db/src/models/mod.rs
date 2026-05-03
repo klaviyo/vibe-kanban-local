@@ -13,6 +13,7 @@ pub mod issue_follower;
 pub mod issue_relationship;
 pub mod issue_tag;
 pub mod merge;
+pub mod mutation_log;
 pub mod organization;
 pub mod organization_member;
 pub mod project;

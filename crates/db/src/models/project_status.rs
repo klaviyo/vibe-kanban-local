@@ -1,11 +1,13 @@
 use api_types::{
-    self as wire,
+    self as wire, DeleteResponse, MutationResponse,
     project_status::{CreateProjectStatusRequest, UpdateProjectStatusRequest},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct ProjectStatus {
@@ -63,9 +65,10 @@ impl ProjectStatus {
         pool: &SqlitePool,
         id: Uuid,
         data: &CreateProjectStatusRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let sort_order = i64::from(data.sort_order);
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectStatus,
             r#"INSERT INTO project_statuses (id, project_id, name, color, sort_order, hidden)
                VALUES ($1, $2, $3, $4, $5, $6)
@@ -83,15 +86,18 @@ impl ProjectStatus {
             sort_order,
             data.hidden,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateProjectStatusRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_name = data.name.is_some();
         let name_value = data.name.clone();
         let update_color = data.color.is_some();
@@ -101,7 +107,8 @@ impl ProjectStatus {
         let update_hidden = data.hidden.is_some();
         let hidden_value = data.hidden;
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectStatus,
             r#"UPDATE project_statuses
                SET name       = CASE WHEN $2 THEN $3 ELSE name END,
@@ -126,15 +133,21 @@ impl ProjectStatus {
             update_hidden,
             hidden_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM project_statuses WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM project_statuses WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 

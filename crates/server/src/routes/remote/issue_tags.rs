@@ -1,4 +1,6 @@
-use api_types::{CreateIssueTagRequest, IssueTag, ListIssueTagsResponse, MutationResponse};
+use api_types::{
+    CreateIssueTagRequest, DeleteResponse, IssueTag, ListIssueTagsResponse, MutationResponse,
+};
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
@@ -55,8 +57,8 @@ async fn create_issue_tag(
 async fn delete_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    client.delete_issue_tag(issue_tag_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = client.delete_issue_tag(issue_tag_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
