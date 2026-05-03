@@ -228,6 +228,10 @@ pub async fn perform_cleanup_actions(
 /// Cancels the shutdown token to start axum's graceful shutdown, then awaits
 /// the supplied server task handles so axum finishes draining in-flight
 /// requests before any DB-backed cleanup runs.
+///
+/// Skips handles whose task has already finished — those may have been polled
+/// to completion by the caller's `select!`, and Tokio panics with "polled
+/// `JoinHandle` after completion" on a second poll.
 async fn drain_http_servers(
     shutdown_token: &CancellationToken,
     server_handles: Vec<JoinHandle<()>>,
@@ -235,6 +239,9 @@ async fn drain_http_servers(
     shutdown_token.cancel();
 
     for handle in server_handles {
+        if handle.is_finished() {
+            continue;
+        }
         if let Err(e) = handle.await {
             tracing::warn!("Server task ended with error: {}", e);
         }
@@ -535,6 +542,39 @@ mod tests {
         drain_http_servers(&token, vec![panicking]).await;
 
         assert!(token.is_cancelled(), "shutdown token should be cancelled");
+    }
+
+    #[tokio::test]
+    async fn drain_http_servers_skips_already_polled_handles() {
+        // Mirrors the call-site pattern: the caller's `select!` polls one
+        // handle via `&mut`, completes it, then forwards both handles into
+        // drain_http_servers. The already-polled handle must be skipped so
+        // Tokio doesn't panic with "polled `JoinHandle` after completion".
+        let token = CancellationToken::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let mut polled_handle = tokio::spawn(async {});
+        (&mut polled_handle)
+            .await
+            .expect("poll-to-completion should succeed");
+        assert!(
+            polled_handle.is_finished(),
+            "handle should be finished after caller polls it"
+        );
+
+        let counter_clone = counter.clone();
+        let pending_handle = tokio::spawn(async move {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        drain_http_servers(&token, vec![polled_handle, pending_handle]).await;
+
+        assert!(token.is_cancelled());
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "still-pending handle must be awaited to completion"
+        );
     }
 
     #[tokio::test]
