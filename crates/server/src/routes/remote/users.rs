@@ -5,9 +5,12 @@
 //! user, provisioned lazily by `runtime::synthetic::local_user`, so
 //! creates, updates, and deletes have no on-the-wire surface. The
 //! kanban frontend resolves this entity through `localRouteResolver`
-//! and expects an `ApiResponse<Vec<User>>`-shaped envelope from
-//! `GET /users?organization_id={uuid}` (it lists every user that is a
-//! member of the requested org).
+//! and reads the list via `extractRows`, which looks up
+//! `data[<table>]` on the envelope — so `GET /users?organization_id={uuid}`
+//! must return `ApiResponse<UsersResponse>` where `UsersResponse`
+//! exposes a single `users: Vec<User>` field. This matches the
+//! table-keyed convention the real-CRUD modules in this directory
+//! already use (e.g. `ListIssueFollowersResponse { issue_followers: Vec<…> }`).
 //!
 //! Implementation: enumerate `OrganizationMember::find_by_organization`,
 //! then load the corresponding `User` rows. In practice this returns
@@ -24,11 +27,22 @@ use axum::{
 };
 use db::models::{organization_member::OrganizationMember, user::User as UserRow};
 use deployment::Deployment;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
+
+/// Table-keyed list envelope for `GET /users`. The wire field name
+/// (`users`) matches the snake-case table name the kanban frontend's
+/// `extractRows` looks up via `data[table]`. Defined locally rather
+/// than in `api-types` because no `ListUsersResponse` wire type is
+/// shared with the cloud surface — this is a local-only single-user
+/// shape contract.
+#[derive(Debug, Serialize)]
+pub(super) struct UsersResponse {
+    pub users: Vec<User>,
+}
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListUsersQuery {
@@ -48,7 +62,7 @@ pub(super) fn router() -> Router<DeploymentImpl> {
 async fn list_users(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListUsersQuery>,
-) -> Result<ResponseJson<ApiResponse<Vec<User>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<UsersResponse>>, ApiError> {
     let pool = &deployment.db().pool;
     let members = OrganizationMember::find_by_organization(pool, query.organization_id).await?;
 
@@ -59,7 +73,7 @@ async fn list_users(
         }
     }
 
-    Ok(ResponseJson(ApiResponse::success(users)))
+    Ok(ResponseJson(ApiResponse::success(UsersResponse { users })))
 }
 
 #[cfg(test)]
@@ -69,18 +83,20 @@ mod tests {
 
     #[test]
     fn empty_users_envelope_shape() {
-        let envelope: ApiResponse<Vec<User>> = ApiResponse::success(Vec::new());
+        let envelope: ApiResponse<UsersResponse> =
+            ApiResponse::success(UsersResponse { users: Vec::new() });
         let body = serde_json::to_value(&envelope).expect("serialize envelope");
         assert_eq!(
             body,
             json!({
                 "success": true,
-                "data": [],
+                "data": { "users": [] },
                 "error_data": null,
                 "message": null,
             }),
-            "users list must use the ApiResponse envelope; an org with no \
-             matching members yields an empty data array, not a 404"
+            "users list must use the table-keyed ApiResponse envelope; \
+             extractRows reads data[\"users\"] and an org with no matching \
+             members yields an empty users array, not a 404"
         );
     }
 }

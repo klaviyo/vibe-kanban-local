@@ -6,15 +6,22 @@
 //! synthetic user as a member of the personal organization, so no
 //! actor-other-than-self ever exists; there is nothing to deliver. The
 //! kanban frontend resolves this entity through `localRouteResolver` and
-//! expects an `ApiResponse<Vec<Notification>>`-shaped envelope, so we
-//! return an empty list rather than 404 (which the side-panel would
+//! reads the list via `extractRows`, which looks up `data[<table>]`
+//! on the envelope — so this handler returns
+//! `ApiResponse<NotificationsResponse>` where `NotificationsResponse`
+//! exposes a single `notifications: Vec<Notification>` field, always
+//! empty in single-user mode. This matches the table-keyed convention
+//! used by the real-CRUD modules in this directory (e.g.
+//! `ListIssueFollowersResponse { issue_followers: Vec<…> }`) and
+//! returns an empty list rather than 404 (which the side-panel would
 //! surface as broken state).
 //!
 //! This is **not** a TODO. There is no local notifications table, no
 //! producer for local notifications, and no consumer story that would
 //! make populating the list meaningful in single-user mode. If/when
 //! local mode grows multi-user semantics, this handler will need to be
-//! replaced with a real list backed by a `notifications` table.
+//! replaced with a real list backed by a `notifications` table — the
+//! envelope shape, however, is already correct and would not change.
 
 use api_types::Notification;
 use axum::{
@@ -23,11 +30,22 @@ use axum::{
     response::Json as ResponseJson,
     routing::get,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::DeploymentImpl;
+
+/// Table-keyed list envelope for `GET /notifications`. The wire field
+/// name (`notifications`) matches the snake-case table name the kanban
+/// frontend's `extractRows` looks up via `data[table]`. Defined
+/// locally rather than in `api-types` because no `ListNotificationsResponse`
+/// wire type is shared with the cloud surface — this is a local-only
+/// single-user shape contract whose payload is always empty.
+#[derive(Debug, Serialize)]
+pub(super) struct NotificationsResponse {
+    pub notifications: Vec<Notification>,
+}
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListNotificationsQuery {
@@ -46,8 +64,10 @@ pub(super) fn router() -> Router<DeploymentImpl> {
 /// implementation.
 async fn list_notifications(
     Query(_query): Query<ListNotificationsQuery>,
-) -> ResponseJson<ApiResponse<Vec<Notification>>> {
-    ResponseJson(ApiResponse::success(Vec::new()))
+) -> ResponseJson<ApiResponse<NotificationsResponse>> {
+    ResponseJson(ApiResponse::success(NotificationsResponse {
+        notifications: Vec::new(),
+    }))
 }
 
 #[cfg(test)]
@@ -57,18 +77,23 @@ mod tests {
 
     #[test]
     fn empty_notifications_envelope_shape() {
-        let envelope: ApiResponse<Vec<Notification>> = ApiResponse::success(Vec::new());
+        let envelope: ApiResponse<NotificationsResponse> =
+            ApiResponse::success(NotificationsResponse {
+                notifications: Vec::new(),
+            });
         let body = serde_json::to_value(&envelope).expect("serialize envelope");
         assert_eq!(
             body,
             json!({
                 "success": true,
-                "data": [],
+                "data": { "notifications": [] },
                 "error_data": null,
                 "message": null,
             }),
-            "single-user local mode must return an empty notifications list, \
-             not a 404 — the kanban side-panel relies on the ApiResponse envelope"
+            "single-user local mode must return an empty notifications list \
+             under the table-keyed envelope; extractRows reads \
+             data[\"notifications\"] and the side-panel relies on the \
+             ApiResponse envelope rather than 404"
         );
     }
 }
