@@ -1,10 +1,12 @@
 use api_types::{
-    self as wire,
+    self as wire, DeleteResponse, MutationResponse,
     tag::{CreateTagRequest, UpdateTagRequest},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 /// Cloud's `tags` table renamed locally to `project_tags` because the
 /// existing `tags` table already serves the task-template tag domain.
@@ -55,8 +57,9 @@ impl ProjectTag {
         pool: &SqlitePool,
         id: Uuid,
         data: &CreateTagRequest,
-    ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectTag,
             r#"INSERT INTO project_tags (id, project_id, name, color)
                VALUES ($1, $2, $3, $4)
@@ -69,21 +72,25 @@ impl ProjectTag {
             data.name,
             data.color,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateTagRequest,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_name = data.name.is_some();
         let name_value = data.name.clone();
         let update_color = data.color.is_some();
         let color_value = data.color.clone();
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             ProjectTag,
             r#"UPDATE project_tags
                SET name  = CASE WHEN $2 THEN $3 ELSE name END,
@@ -99,15 +106,21 @@ impl ProjectTag {
             update_color,
             color_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM project_tags WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM project_tags WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 

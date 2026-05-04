@@ -1,8 +1,10 @@
-use api_types as wire;
+use api_types::{self as wire, DeleteResponse, MutationResponse};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool, Type};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "member_role", rename_all = "lowercase")]
@@ -108,8 +110,9 @@ impl OrganizationMember {
     pub async fn create(
         pool: &SqlitePool,
         data: &CreateOrganizationMember,
-    ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             OrganizationMember,
             r#"INSERT INTO organization_members (organization_id, user_id, role)
                VALUES ($1, $2, $3)
@@ -122,8 +125,11 @@ impl OrganizationMember {
             data.user_id,
             data.role,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update_role(
@@ -131,8 +137,9 @@ impl OrganizationMember {
         organization_id: Uuid,
         user_id: Uuid,
         role: MemberRole,
-    ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             OrganizationMember,
             r#"UPDATE organization_members
                SET role = $3
@@ -146,23 +153,29 @@ impl OrganizationMember {
             user_id,
             role,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn delete(
         pool: &SqlitePool,
         organization_id: Uuid,
         user_id: Uuid,
-    ) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!(
+    ) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!(
             "DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2",
             organization_id,
             user_id,
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 
     /// Mirror of the cloud member-removal contract: reject self-removal,

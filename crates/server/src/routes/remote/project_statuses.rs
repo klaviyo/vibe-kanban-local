@@ -14,7 +14,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListProjectStatusesQuery {
@@ -64,10 +64,10 @@ async fn create_project_status(
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<ProjectStatus>>>, ApiError> {
     let pool = &deployment.db().pool;
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let row = ProjectStatusRow::create(pool, id, &request).await?;
+    let response = ProjectStatusRow::create(pool, id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: ProjectStatus::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
@@ -77,10 +77,10 @@ async fn update_project_status(
     Json(request): Json<UpdateProjectStatusRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<ProjectStatus>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let row = ProjectStatusRow::update(pool, status_id, &request).await?;
+    let response = ProjectStatusRow::update(pool, status_id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: ProjectStatus::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 

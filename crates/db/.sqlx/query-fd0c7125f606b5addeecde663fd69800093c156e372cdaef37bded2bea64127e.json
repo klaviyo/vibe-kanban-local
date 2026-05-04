@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO organizations (id, name, slug)\n               VALUES ($1, $2, $3)\n               RETURNING id          as \"id!: Uuid\",\n                         name,\n                         slug,\n                         is_personal as \"is_personal!: bool\",\n                         issue_prefix,\n                         issue_counter,\n                         created_at  as \"created_at!: DateTime<Utc>\",\n                         updated_at  as \"updated_at!: DateTime<Utc>\"",
+  "query": "INSERT INTO organizations (id, name, slug, issue_prefix)\n               VALUES ($1, $2, $3, $4)\n               RETURNING id          as \"id!: Uuid\",\n                         name,\n                         slug,\n                         is_personal as \"is_personal!: bool\",\n                         issue_prefix,\n                         issue_counter,\n                         created_at  as \"created_at!: DateTime<Utc>\",\n                         updated_at  as \"updated_at!: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 4
     },
     "nullable": [
       true,
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "9e03ad0ebe0bb7c4e17646ca962b5f6d379c461a96fe938789ea68fbd4e9edc6"
+  "hash": "fd0c7125f606b5addeecde663fd69800093c156e372cdaef37bded2bea64127e"
 }

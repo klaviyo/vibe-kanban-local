@@ -1,4 +1,6 @@
-use api_types::{CreateIssueTagRequest, IssueTag, ListIssueTagsResponse, MutationResponse};
+use api_types::{
+    CreateIssueTagRequest, DeleteResponse, IssueTag, ListIssueTagsResponse, MutationResponse,
+};
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
@@ -11,7 +13,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListIssueTagsQuery {
@@ -56,18 +58,18 @@ async fn create_issue_tag(
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueTag>>>, ApiError> {
     let pool = &deployment.db().pool;
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let row = IssueTagRow::create(pool, id, &request).await?;
+    let response = IssueTagRow::create(pool, id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: IssueTag::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
 async fn delete_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    IssueTagRow::delete(pool, issue_tag_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = IssueTagRow::delete(pool, issue_tag_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }

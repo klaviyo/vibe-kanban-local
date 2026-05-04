@@ -11,7 +11,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListTagsQuery {
@@ -56,10 +56,10 @@ async fn create_tag(
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Tag>>>, ApiError> {
     let pool = &deployment.db().pool;
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let row = ProjectTag::create(pool, id, &request).await?;
+    let response = ProjectTag::create(pool, id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Tag::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
@@ -69,10 +69,10 @@ async fn update_tag(
     Json(request): Json<UpdateTagRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Tag>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let row = ProjectTag::update(pool, tag_id, &request).await?;
+    let response = ProjectTag::update(pool, tag_id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: Tag::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
