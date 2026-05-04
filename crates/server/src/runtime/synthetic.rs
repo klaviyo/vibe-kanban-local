@@ -14,10 +14,13 @@
 //! back too. Routes consume `MutationResponse.txid` from the model layer.
 
 use api_types::{CreateOrganizationRequest, MemberRole as WireMemberRole, ProfileResponse};
-use db::models::{
-    organization::Organization,
-    organization_member::{CreateOrganizationMember, MemberRole, OrganizationMember},
-    user::{CreateUser, User},
+use db::{
+    identity_seeder,
+    models::{
+        organization::Organization,
+        organization_member::{CreateOrganizationMember, MemberRole, OrganizationMember},
+        user::{CreateUser, User},
+    },
 };
 use deployment::Deployment;
 use uuid::Uuid;
@@ -56,9 +59,22 @@ fn personal_org_slug(deployment_user_id: &str) -> String {
     format!("personal-{cleaned}")
 }
 
-/// Lazily provisions the local synthetic user on first read.
+/// Returns the canonical synthetic user. Prefers the user_id persisted by the
+/// first-launch identity seeder (`identity_seed_marker`) so route-layer auth
+/// agrees with the seeded organization_members row across server boots.
+///
+/// Falls back to the legacy derive-from-deployment-user-id path only if the
+/// marker is absent (which should not occur post-PR-#16). The fallback
+/// preserves existing behavior on test fixtures that pre-date the seeder.
 pub async fn local_user(deployment: &DeploymentImpl) -> Result<User, sqlx::Error> {
     let pool = &deployment.db().pool;
+
+    if let Some(marker) = identity_seeder::read_marker(pool).await?
+        && let Some(existing) = User::find_by_id(pool, marker.user_id).await?
+    {
+        return Ok(existing);
+    }
+
     let id = local_user_id(deployment.user_id());
 
     if let Some(existing) = User::find_by_id(pool, id).await? {
@@ -79,13 +95,39 @@ pub async fn local_user(deployment: &DeploymentImpl) -> Result<User, sqlx::Error
     Ok(response.data)
 }
 
-/// Lazily provisions the synthetic personal organization for the local user
-/// and ensures membership. Returns the organization.
+/// Returns the canonical synthetic personal organization. Prefers the
+/// organization_id persisted by the first-launch identity seeder
+/// (`identity_seed_marker`) so the org returned here matches the
+/// organization_members row the seeder created.
+///
+/// Falls back to the legacy derive-from-deployment-user-id slug lookup only
+/// if the marker is absent.
 pub async fn local_personal_organization(
     deployment: &DeploymentImpl,
 ) -> Result<Organization, sqlx::Error> {
     let pool = &deployment.db().pool;
     let user = local_user(deployment).await?;
+
+    if let Some(marker) = identity_seeder::read_marker(pool).await?
+        && let Some(existing) = Organization::find_by_id(pool, marker.organization_id).await?
+    {
+        if OrganizationMember::find(pool, existing.id, user.id)
+            .await?
+            .is_none()
+        {
+            OrganizationMember::create(
+                pool,
+                &CreateOrganizationMember {
+                    organization_id: existing.id,
+                    user_id: user.id,
+                    role: MemberRole::Admin,
+                },
+            )
+            .await?;
+        }
+        return Ok(existing);
+    }
+
     let slug = personal_org_slug(deployment.user_id());
 
     if let Some(existing) = Organization::find_by_slug(pool, &slug).await? {
