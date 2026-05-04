@@ -34,7 +34,7 @@ use ts_rs::TS;
 use utils::{assets::config_path, log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -100,8 +100,18 @@ pub struct UserSystemInfo {
 #[axum::debug_handler]
 async fn get_user_system_info(
     State(deployment): State<DeploymentImpl>,
-) -> ResponseJson<ApiResponse<UserSystemInfo>> {
+) -> Result<ResponseJson<ApiResponse<UserSystemInfo>>, ApiError> {
     let config = deployment.config().read().await.clone();
+
+    // Local mode is always logged in as the synthetic single-user. Mirror what
+    // /api/auth/status returns so the frontend's userSystemInfo.login_status
+    // path agrees with the auth-status endpoint (frontend's
+    // useUserSystemController reads login_status from /api/info, not the
+    // /api/auth/status route).
+    let profile = synthetic::synthetic_profile(&deployment).await?;
+    let login_status = Some(api_types::LoginStatus::LoggedIn {
+        profile: Some(profile),
+    });
 
     let user_system_info = UserSystemInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -120,12 +130,12 @@ async fn get_user_system_info(
             caps
         },
         preview_proxy_port: deployment.client_info().get_preview_proxy_port(),
-        login_status: None,
+        login_status,
         remote_auth_degraded: None,
         shared_api_base: None,
     };
 
-    ResponseJson(ApiResponse::success(user_system_info))
+    Ok(ResponseJson(ApiResponse::success(user_system_info)))
 }
 
 async fn update_config(
