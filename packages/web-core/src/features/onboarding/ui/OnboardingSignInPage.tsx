@@ -7,7 +7,6 @@ import {
   OAuthDialog,
   type OAuthProvider,
 } from '@/shared/dialogs/global/OAuthDialog';
-import { usePostHog } from 'posthog-js/react';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { OAuthSignInButton } from '@vibe/ui/components/OAuthButtons';
@@ -75,7 +74,6 @@ export function OnboardingSignInPage() {
   const appNavigation = useAppNavigation();
   const { t } = useTranslation('common');
   const { theme } = useTheme();
-  const posthog = usePostHog();
   const { config, loginStatus, loading, updateAndSaveConfig } = useUserSystem();
   const setSelectedOrgId = useOrganizationStore((s) => s.setSelectedOrgId);
 
@@ -101,15 +99,12 @@ export function OnboardingSignInPage() {
   const oauthProviders = authMethods?.oauth_providers ?? [];
   const hasOAuthProviders = oauthProviders.length > 0;
 
+  // Local frontend has no analytics provider; remote-onboarding tracking
+  // events are intentionally dropped here. Cloud frontend retains its own
+  // tracker if/when it re-introduces these flows. See PR #9 / Round 1 #8.
   const trackRemoteOnboardingEvent = useCallback(
-    (eventName: string, properties: Record<string, unknown> = {}) => {
-      posthog?.capture(eventName, {
-        ...properties,
-        flow: 'remote_onboarding_ui',
-        source: 'frontend',
-      });
-    },
-    [posthog]
+    (_eventName: string, _properties: Record<string, unknown> = {}) => {},
+    []
   );
 
   const logoSrc =
