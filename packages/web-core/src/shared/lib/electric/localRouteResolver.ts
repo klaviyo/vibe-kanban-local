@@ -53,6 +53,29 @@ const LOCAL_ROUTES_BY_TABLE: Record<string, readonly LocalRouteVariant[]> = {
     { path: '/api/remote/workspaces', expectedParams: ['project_id'] },
     { path: '/api/remote/workspaces', expectedParams: ['owner_user_id'] },
   ],
+  notifications: [
+    { path: '/api/remote/notifications', expectedParams: ['user_id'] },
+  ],
+  organization_member_metadata: [
+    {
+      path: '/api/remote/organization-member-metadata',
+      expectedParams: ['organization_id'],
+    },
+  ],
+  users: [{ path: '/api/remote/users', expectedParams: ['organization_id'] }],
+  issue_followers: [
+    { path: '/api/remote/issue-followers', expectedParams: ['project_id'] },
+    { path: '/api/remote/issue-followers', expectedParams: ['issue_id'] },
+  ],
+  issue_comments: [
+    { path: '/api/remote/issue-comments', expectedParams: ['issue_id'] },
+  ],
+  issue_comment_reactions: [
+    {
+      path: '/api/remote/issue-comment-reactions',
+      expectedParams: ['issue_id'],
+    },
+  ],
 };
 
 /**
