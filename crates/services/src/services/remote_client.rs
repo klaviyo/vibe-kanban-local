@@ -12,11 +12,12 @@ use api_types::{
     ListAttachmentsResponse, ListInvitationsResponse, ListIssueAssigneesResponse,
     ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse, ListMembersResponse,
     ListOrganizationsResponse, ListProjectStatusesResponse, ListProjectsResponse,
-    ListPullRequestsResponse, ListTagsResponse, LocalLoginRequest, LocalLoginResponse,
-    MutationResponse, Organization, ProfileResponse, PullRequest, RevokeInvitationRequest,
-    SearchIssuesRequest, Tag, TokenRefreshRequest, TokenRefreshResponse, UpdateIssueRequest,
-    UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateOrganizationRequest,
-    UpdatePullRequestApiRequest, UpdateWorkspaceRequest, UpsertPullRequestRequest, Workspace,
+    ListPullRequestIssuesResponse, ListPullRequestsResponse, ListTagsResponse,
+    ListWorkspacesResponse, LocalLoginRequest, LocalLoginResponse, MutationResponse, Organization,
+    ProfileResponse, PullRequest, RevokeInvitationRequest, SearchIssuesRequest, Tag,
+    TokenRefreshRequest, TokenRefreshResponse, UpdateIssueRequest, UpdateMemberRoleRequest,
+    UpdateMemberRoleResponse, UpdateOrganizationRequest, UpdatePullRequestApiRequest,
+    UpdateWorkspaceRequest, UpsertPullRequestRequest, Workspace,
 };
 use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
@@ -1004,6 +1005,80 @@ impl RemoteClient {
     ) -> Result<ListPullRequestsResponse, RemoteClientError> {
         self.get_authed(&format!("/v1/pull_requests?issue_id={issue_id}"))
             .await
+    }
+
+    // ── Project-scoped fallback list endpoints ─────────────────────────
+    //
+    // These hit the remote `/v1/fallback/*?project_id=…` endpoints that back
+    // the kanban-board shapes; the local `/api/remote/*` routes proxy through
+    // them so the frontend's project-keyed reads do not bypass the local
+    // server. Issue-scoped variants above are kept for issue-page reads that
+    // still take an `issue_id`.
+
+    pub async fn list_project_issue_assignees(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListIssueAssigneesResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/issue_assignees?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_project_issue_tags(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListIssueTagsResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/issue_tags?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_project_issue_relationships(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListIssueRelationshipsResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/issue_relationships?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_project_pull_requests(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListPullRequestsResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/pull_requests?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_project_pull_request_issues(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListPullRequestIssuesResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/pull_request_issues?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_project_workspaces(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListWorkspacesResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/fallback/project_workspaces?project_id={project_id}"
+        ))
+        .await
+    }
+
+    pub async fn list_user_workspaces(
+        &self,
+    ) -> Result<ListWorkspacesResponse, RemoteClientError> {
+        self.get_authed("/v1/fallback/user_workspaces").await
     }
 
     /// Lists attachments for an issue on the remote server.

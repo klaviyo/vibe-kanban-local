@@ -1,7 +1,7 @@
 import { PROJECTS_SHAPE, type Project } from 'shared/remote-types';
 import { type OrganizationWithRole } from 'shared/types';
 import { organizationsApi } from '@/shared/lib/api';
-import { createShapeCollection } from '@/shared/lib/electric/collections';
+import { fetchShapeRows } from '@/shared/lib/electric/fetchShape';
 import { getFirstProjectByOrder } from '@/shared/lib/projectOrder';
 import type { AppDestination } from '@/shared/lib/routes/appNavigation';
 
@@ -20,56 +20,15 @@ function getFirstOrganization(
 async function getProjectsInOrganization(
   organizationId: string
 ): Promise<Project[] | null> {
-  const collection = createShapeCollection(PROJECTS_SHAPE, {
+  const fetchPromise = fetchShapeRows(PROJECTS_SHAPE, {
     organization_id: organizationId,
+  }).catch(() => null);
+
+  const timeoutPromise = new Promise<Project[] | null>((resolve) => {
+    window.setTimeout(() => resolve(null), FIRST_PROJECT_LOOKUP_TIMEOUT_MS);
   });
 
-  const getCollectionProjects = () =>
-    collection.toArray as unknown as Project[];
-
-  if (collection.isReady()) {
-    return getCollectionProjects();
-  }
-
-  return new Promise<Project[] | null>((resolve) => {
-    let settled = false;
-    let timeoutId: number | undefined;
-    let subscription: { unsubscribe: () => void } | undefined;
-
-    const settle = (projects: Project[] | null) => {
-      if (settled) return;
-      settled = true;
-
-      if (timeoutId !== undefined) {
-        window.clearTimeout(timeoutId);
-        timeoutId = undefined;
-      }
-      if (subscription) {
-        subscription.unsubscribe();
-        subscription = undefined;
-      }
-
-      resolve(projects);
-    };
-
-    const tryResolve = () => {
-      if (!collection.isReady()) {
-        return;
-      }
-
-      settle(getCollectionProjects());
-    };
-
-    subscription = collection.subscribeChanges(tryResolve, {
-      includeInitialState: true,
-    });
-
-    timeoutId = window.setTimeout(() => {
-      settle(null);
-    }, FIRST_PROJECT_LOOKUP_TIMEOUT_MS);
-
-    tryResolve();
-  });
+  return Promise.race([fetchPromise, timeoutPromise]);
 }
 
 export async function getFirstProjectDestination(

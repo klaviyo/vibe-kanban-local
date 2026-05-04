@@ -19,3 +19,8 @@ pub struct Workspace {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ListWorkspacesResponse {
+    pub workspaces: Vec<Workspace>,
+}

@@ -22,7 +22,6 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import type { IconProps } from '@phosphor-icons/react';
-import { usePostHog } from 'posthog-js/react';
 import { siDiscord } from 'simple-icons';
 import {
   BaseCodingAgent,
@@ -150,7 +149,6 @@ export function LandingPage() {
   const appNavigation = useAppNavigation();
   const { theme } = useTheme();
   const { config, profiles, updateAndSaveConfig, loading } = useUserSystem();
-  const posthog = usePostHog();
 
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -164,15 +162,12 @@ export function LandingPage() {
   const hasTrackedStageViewRef = useRef(false);
   const hasRedirectedToRootRef = useRef(false);
 
+  // Local frontend has no analytics provider; remote-onboarding tracking
+  // events are intentionally dropped here. Cloud frontend retains its own
+  // tracker if/when it re-introduces these flows. See PR #9 / Round 1 #8.
   const trackRemoteOnboardingEvent = useCallback(
-    (eventName: string, properties: Record<string, unknown> = {}) => {
-      posthog?.capture(eventName, {
-        ...properties,
-        flow: 'remote_onboarding_ui',
-        source: 'frontend',
-      });
-    },
-    [posthog]
+    (_eventName: string, _properties: Record<string, unknown> = {}) => {},
+    []
   );
 
   const logoSrc =
