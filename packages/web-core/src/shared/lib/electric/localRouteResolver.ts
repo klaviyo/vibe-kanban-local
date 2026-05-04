@@ -132,6 +132,16 @@ const LOCAL_MUTATION_ROUTE_BY_URL: Record<string, LocalMutationRoute> = {
   '/v1/issue_assignees': { path: '/api/remote/issue-assignees' },
   '/v1/issue_tags': { path: '/api/remote/issue-tags' },
   '/v1/issue_relationships': { path: '/api/remote/issue-relationships' },
+  '/v1/issue_followers': { path: '/api/remote/issue-followers' },
+  '/v1/issue_comments': { path: '/api/remote/issue-comments' },
+  '/v1/issue_comment_reactions': {
+    path: '/api/remote/issue-comment-reactions',
+  },
+  '/v1/projects': { path: '/api/remote/projects' },
+  '/v1/project_statuses': { path: '/api/remote/project-statuses' },
+  '/v1/tags': { path: '/api/remote/tags' },
+  '/v1/notifications': { path: '/api/remote/notifications' },
+  '/v1/pull_request_issues': { path: '/api/remote/pull-request-issues' },
 };
 
 /**

@@ -18,13 +18,22 @@ pub async fn log_server_errors(request: Request, next: Next) -> Response {
 
     let response = next.run(request).await;
 
-    if response.status().is_server_error() {
+    let status = response.status();
+    if status.is_server_error() {
         tracing::error!(
             method = %method,
             uri = %uri,
             matched_path = matched_path.as_deref().unwrap_or("<unmatched>"),
-            status = %response.status(),
+            status = %status,
             "API request returned server error"
+        );
+    } else {
+        tracing::info!(
+            method = %method,
+            uri = %uri,
+            matched_path = matched_path.as_deref().unwrap_or("<unmatched>"),
+            status = %status,
+            "request"
         );
     }
 

@@ -12,11 +12,15 @@ interface UserProviderProps {
 }
 
 export function UserProvider({ children }: UserProviderProps) {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
 
-  // No params needed - backend gets user from auth context
-  const params = useMemo(() => ({}), []);
-  const enabled = isSignedIn;
+  // Local backend reads owner_user_id from the query string (cloud read it
+  // from the JWT). Pass the synthetic user's id explicitly post-cutover.
+  const params = useMemo(
+    () => ({ owner_user_id: userId ?? '' }),
+    [userId]
+  );
+  const enabled = isSignedIn && !!userId;
 
   // Shape subscriptions
   const workspacesResult = useShape(USER_WORKSPACES_SHAPE, params, { enabled });

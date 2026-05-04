@@ -105,7 +105,6 @@ import type { Project as RemoteProject } from 'shared/remote-types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { resolveHostRequestScope } from '@/shared/lib/hostRequestScope';
-import { makeRequest as makeRemoteRequest } from '@/shared/lib/remoteApi';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 
 export class ApiError<E = unknown> extends Error {
@@ -1321,81 +1320,61 @@ export async function getCachedToken(): Promise<string | null> {
   return tokenManager.getToken();
 }
 
-const handleRemoteResponse = async <T>(response: Response): Promise<T> => {
-  if (!response.ok) {
-    let errorMessage = `Request failed with status ${response.status}`;
-
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        message?: string;
-      };
-      errorMessage = body.error || body.message || errorMessage;
-    } catch {
-      errorMessage = response.statusText || errorMessage;
-    }
-
-    throw new ApiError(errorMessage, response.status, response);
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
-};
-
 // Organizations API
+//
+// Routes are served by the local backend at `/api/organizations/...`
+// (post-cutover). All responses are wrapped in the standard ApiResponse
+// envelope, so we use the local `makeRequest` + `handleApiResponse`. Billing
+// endpoints have no local equivalent — single-user local mode is unbilled —
+// and throw a clear error if invoked. The frontend gates billing-related
+// queries behind `getRemoteApiUrl()` truthiness, so they never run unless
+// VK_SHARED_API_BASE is set.
 export const organizationsApi = {
   getMembers: async (
     orgId: string
   ): Promise<OrganizationMemberWithProfile[]> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/members`
-    );
-    const result = await handleRemoteResponse<ListMembersResponse>(response);
+    const response = await makeRequest(`/api/organizations/${orgId}/members`);
+    const result = await handleApiResponse<ListMembersResponse>(response);
     return result.members;
   },
 
   getUserOrganizations: async (): Promise<ListOrganizationsResponse> => {
-    const response = await makeRemoteRequest('/v1/organizations');
-    return handleRemoteResponse<ListOrganizationsResponse>(response);
+    const response = await makeRequest('/api/organizations');
+    return handleApiResponse<ListOrganizationsResponse>(response);
   },
 
   createOrganization: async (
     data: CreateOrganizationRequest
   ): Promise<CreateOrganizationResponse> => {
-    const response = await makeRemoteRequest('/v1/organizations', {
+    const response = await makeRequest('/api/organizations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return handleRemoteResponse<CreateOrganizationResponse>(response);
+    return handleApiResponse<CreateOrganizationResponse>(response);
   },
 
   createInvitation: async (
     orgId: string,
     data: CreateInvitationRequest
   ): Promise<CreateInvitationResponse> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/invitations`,
+    const response = await makeRequest(
+      `/api/organizations/${orgId}/invitations`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       }
     );
-    return handleRemoteResponse<CreateInvitationResponse>(response);
+    return handleApiResponse<CreateInvitationResponse>(response);
   },
 
   removeMember: async (orgId: string, userId: string): Promise<void> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/members/${userId}`,
+    const response = await makeRequest(
+      `/api/organizations/${orgId}/members/${userId}`,
       {
         method: 'DELETE',
       }
     );
-    return handleRemoteResponse<void>(response);
+    return handleApiResponse<void>(response);
   },
 
   updateMemberRole: async (
@@ -1403,23 +1382,21 @@ export const organizationsApi = {
     userId: string,
     data: UpdateMemberRoleRequest
   ): Promise<UpdateMemberRoleResponse> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/members/${userId}/role`,
+    const response = await makeRequest(
+      `/api/organizations/${orgId}/members/${userId}/role`,
       {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       }
     );
-    return handleRemoteResponse<UpdateMemberRoleResponse>(response);
+    return handleApiResponse<UpdateMemberRoleResponse>(response);
   },
 
   listInvitations: async (orgId: string): Promise<Invitation[]> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/invitations`
+    const response = await makeRequest(
+      `/api/organizations/${orgId}/invitations`
     );
-    const result =
-      await handleRemoteResponse<ListInvitationsResponse>(response);
+    const result = await handleApiResponse<ListInvitationsResponse>(response);
     return result.invitations;
   },
 
@@ -1428,48 +1405,38 @@ export const organizationsApi = {
     invitationId: string
   ): Promise<void> => {
     const body: RevokeInvitationRequest = { invitation_id: invitationId };
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/invitations/revoke`,
+    const response = await makeRequest(
+      `/api/organizations/${orgId}/invitations/revoke`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }
     );
-    return handleRemoteResponse<void>(response);
+    return handleApiResponse<void>(response);
   },
 
   getBillingStatus: async (
-    orgId: string
+    _orgId: string
   ): Promise<OrganizationBillingStatusResponse> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/billing`
+    throw new Error(
+      'Billing is not available in local-mode vibe-kanban; this call should be gated by getRemoteApiUrl().'
     );
-    return handleRemoteResponse<OrganizationBillingStatusResponse>(response);
   },
 
   createPortalSession: async (
-    orgId: string,
-    returnUrl: string
+    _orgId: string,
+    _returnUrl: string
   ): Promise<{ url: string }> => {
-    const response = await makeRemoteRequest(
-      `/v1/organizations/${orgId}/billing/portal`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          return_url: returnUrl,
-        }),
-      }
+    throw new Error(
+      'Billing is not available in local-mode vibe-kanban; this call should be gated by getRemoteApiUrl().'
     );
-    return handleRemoteResponse<{ url: string }>(response);
   },
 
   deleteOrganization: async (orgId: string): Promise<void> => {
-    const response = await makeRemoteRequest(`/v1/organizations/${orgId}`, {
+    const response = await makeRequest(`/api/organizations/${orgId}`, {
       method: 'DELETE',
     });
-    return handleRemoteResponse<void>(response);
+    return handleApiResponse<void>(response);
   },
 };
 

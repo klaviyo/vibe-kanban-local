@@ -345,6 +345,7 @@ export function useShape<
       const transport = mutationTransport(localMutationRoute, mutationUrl, '');
       const response = await transport.send(transport.url, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(row),
       });
       if (!response.ok) {
@@ -411,6 +412,7 @@ export function useShape<
       );
       const response = await transport.send(transport.url, {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(changes),
       });
       if (!response.ok) {
@@ -468,6 +470,7 @@ export function useShape<
       );
       const response = await transport.send(transport.url, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: body }),
       });
       if (!response.ok) {

@@ -36,6 +36,8 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .nest("/integration", integration::router())
         .nest("/repos", repos::router())
         .nest("/pull-requests", pr::router())
+        .nest("/links", links::router(deployment))
+        .nest("/attachments", attachments::router(deployment))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_workspace_middleware,

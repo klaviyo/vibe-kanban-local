@@ -38,10 +38,25 @@ async fn get_context(
     State(deployment): State<DeploymentImpl>,
     Query(payload): Query<ContainerQuery>,
 ) -> Result<ResponseJson<ApiResponse<WorkspaceContext>>, ApiError> {
-    let info =
-        Workspace::resolve_container_ref_by_prefix(&deployment.db().pool, &payload.container_ref)
-            .await
-            .map_err(ApiError::Database)?;
+    let info = match Workspace::resolve_container_ref_by_prefix(
+        &deployment.db().pool,
+        &payload.container_ref,
+    )
+    .await
+    {
+        Ok(info) => info,
+        // No workspace matches the supplied path prefix yet (common for the
+        // first call from a fresh checkout, before any workspace has been
+        // started). Return 400 BadRequest instead of bubbling the sqlx
+        // RowNotFound up as a 500; the auto-detect callers treat absence as
+        // "no workspace bound here yet" rather than a server failure.
+        Err(sqlx::Error::RowNotFound) => {
+            return Err(ApiError::BadRequest(
+                "No workspace matches the supplied container ref.".to_string(),
+            ));
+        }
+        Err(e) => return Err(ApiError::Database(e)),
+    };
 
     let ctx = Workspace::load_context(&deployment.db().pool, info.workspace_id).await?;
     Ok(ResponseJson(ApiResponse::success(ctx)))
