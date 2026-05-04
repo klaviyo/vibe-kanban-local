@@ -208,69 +208,17 @@ export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "cop
 
 export type ApiResponse<T, E = T> = { success: boolean, data: T | null, error_data: E | null, message: string | null, };
 
-export type LoginStatus = { "status": "loggedout" } | { "status": "loggedin", profile: ProfileResponse | null, };
-
-export type ProfileResponse = { user_id: string, username: string | null, email: string, providers: Array<ProviderProfile>, };
-
-export type ProviderProfile = { provider: string, username: string | null, display_name: string | null, email: string | null, avatar_url: string | null, };
-
-export type StatusResponse = { logged_in: boolean, profile: ProfileResponse | null, degraded: boolean | null, };
-
-export enum MemberRole { ADMIN = "ADMIN", MEMBER = "MEMBER" }
-
-export enum InvitationStatus { PENDING = "PENDING", ACCEPTED = "ACCEPTED", DECLINED = "DECLINED", EXPIRED = "EXPIRED" }
-
-export type Organization = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, };
-
-export type OrganizationWithRole = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, user_role: MemberRole, };
-
-export type ListOrganizationsResponse = { organizations: Array<OrganizationWithRole>, };
-
-export type GetOrganizationResponse = { organization: Organization, user_role: string, };
-
-export type CreateOrganizationRequest = { name: string, slug: string, };
-
-export type CreateOrganizationResponse = { organization: OrganizationWithRole, };
-
-export type UpdateOrganizationRequest = { name: string, };
-
-export type Invitation = { id: string, organization_id: string, invited_by_user_id: string | null, email: string, role: MemberRole, status: InvitationStatus, token: string, created_at: string, expires_at: string, };
-
-export type CreateInvitationRequest = { email: string, role: MemberRole, };
-
-export type CreateInvitationResponse = { invitation: Invitation, };
-
-export type ListInvitationsResponse = { invitations: Array<Invitation>, };
-
-export type GetInvitationResponse = { id: string, organization_slug: string, role: MemberRole, expires_at: string, };
-
-export type AcceptInvitationResponse = { organization_id: string, organization_slug: string, role: MemberRole, };
-
-export type RevokeInvitationRequest = { invitation_id: string, };
-
-export type OrganizationMemberInfo = { user_id: string, role: MemberRole, joined_at: string, };
-
-export type OrganizationMemberWithProfile = { user_id: string, role: MemberRole, joined_at: string, first_name: string | null, last_name: string | null, username: string | null, email: string | null, avatar_url: string | null, };
-
-export type ListMembersResponse = { members: Array<OrganizationMemberWithProfile>, };
-
-export type UpdateMemberRoleRequest = { role: MemberRole, };
-
-export type UpdateMemberRoleResponse = { user_id: string, role: MemberRole, };
-
 export type RegisterRepoRequest = { path: string, display_name: string | null, };
 
 export type InitRepoRequest = { parent_path: string, folder_name: string, };
 
 export type TagSearchParams = { search: string | null, };
 
-export type TokenResponse = { access_token: string, expires_at: string | null, };
-
-export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment, 
+export type UserSystemInfo = { version: string, config: Config, machine_id: string, environment: Environment, 
 /**
  * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
  */
-capabilities: { [key in string]?: Array<BaseAgentCapability> }, shared_api_base: string | null, preview_proxy_port: number | null, executors: { [key in BaseCodingAgent]?: ExecutorProfile }, };
+capabilities: { [key in string]?: Array<BaseAgentCapability> }, preview_proxy_port: number | null, login_status: LoginStatus | null, remote_auth_degraded: string | null, shared_api_base: string | null, executors: { [key in BaseCodingAgent]?: ExecutorProfile }, };
 
 export type Environment = { os_type: string, os_version: string, os_architecture: string, bitness: string, };
 
@@ -287,26 +235,6 @@ export type CheckEditorAvailabilityResponse = { available: boolean, };
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
 export type AgentPresetOptionsQuery = { executor: BaseCodingAgent, variant: string | null, };
-
-export type CurrentUserResponse = { user_id: string, };
-
-export type StartSpake2EnrollmentRequest = { enrollment_code: string, client_message_b64: string, };
-
-export type FinishSpake2EnrollmentRequest = { enrollment_id: string, client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, public_key_b64: string, client_proof_b64: string, };
-
-export type StartSpake2EnrollmentResponse = { enrollment_id: string, server_message_b64: string, };
-
-export type FinishSpake2EnrollmentResponse = { signing_session_id: string, server_public_key_b64: string, server_proof_b64: string, };
-
-export type RelayPairedClient = { client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, };
-
-export type ListRelayPairedClientsResponse = { clients: Array<RelayPairedClient>, };
-
-export type RemoveRelayPairedClientResponse = { removed: boolean, };
-
-export type RefreshRelaySigningSessionRequest = { client_id: string, timestamp: bigint, nonce: string, signature_b64: string, };
-
-export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
 
 export type CreateFollowUpAttempt = { prompt: string, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
@@ -335,20 +263,6 @@ export type ReviewError = { "type": "process_already_running" };
 export type OpenEditorRequest = { editor_type: string | null, file_path: string | null, };
 
 export type OpenEditorResponse = { url: string | null, };
-
-export type OpenRemoteWorkspaceInEditorRequest = { host_id: string, workspace_id: string, editor_type: string | null, file_path: string | null, };
-
-export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
-
-export type PairRelayHostRequest = { host_id: string, host_name: string, enrollment_code: string, };
-
-export type PairRelayHostResponse = { paired: boolean, };
-
-export type RelayPairedHost = { host_id: string, host_name: string | null, paired_at: string | null, };
-
-export type ListRelayPairedHostsResponse = { hosts: Array<RelayPairedHost>, };
-
-export type RemoveRelayPairedHostResponse = { removed: boolean, };
 
 export type CreateWorkspaceApiRequest = { name: string | null, };
 
@@ -803,81 +717,116 @@ permissions: Array<PermissionPolicy>, };
 
 export type ExecutorDiscoveredOptions = { model_selector: ModelSelectorConfig, slash_commands: Array<SlashCommandDescription>, loading_models: boolean, loading_agents: boolean, loading_slash_commands: boolean, error: string | null, };
 
+export type LoginStatus = { "status": "loggedout" } | { "status": "loggedin", profile: ProfileResponse | null, };
+
+export type StatusResponse = { logged_in: boolean, profile: ProfileResponse | null, degraded: boolean | null, };
+
+export type ProfileResponse = { user_id: string, username: string | null, email: string, providers: Array<ProviderProfile>, };
+
+export type ProviderProfile = { provider: string, username: string | null, display_name: string | null, email: string | null, avatar_url: string | null, };
+
+export enum MemberRole { ADMIN = "ADMIN", MEMBER = "MEMBER" }
+
+export type Organization = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, };
+
+export type OrganizationWithRole = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, user_role: MemberRole, };
+
+export type ListOrganizationsResponse = { organizations: Array<OrganizationWithRole>, };
+
+export type CreateOrganizationRequest = { name: string, slug: string, };
+
+export type CreateOrganizationResponse = { organization: OrganizationWithRole, };
+
+export type Invitation = { id: string, organization_id: string, invited_by_user_id: string | null, email: string, role: MemberRole, status: InvitationStatus, token: string, created_at: string, expires_at: string, };
+
+export enum InvitationStatus { PENDING = "PENDING", ACCEPTED = "ACCEPTED", DECLINED = "DECLINED", EXPIRED = "EXPIRED" }
+
+export type CreateInvitationRequest = { email: string, role: MemberRole, };
+
+export type CreateInvitationResponse = { invitation: Invitation, };
+
+export type ListInvitationsResponse = { invitations: Array<Invitation>, };
+
+export type RevokeInvitationRequest = { invitation_id: string, };
+
+export type OrganizationMemberWithProfile = { user_id: string, role: MemberRole, joined_at: string, first_name: string | null, last_name: string | null, username: string | null, email: string | null, avatar_url: string | null, };
+
+export type ListMembersResponse = { members: Array<OrganizationMemberWithProfile>, };
+
+export type UpdateMemberRoleRequest = { role: MemberRole, };
+
+export type UpdateMemberRoleResponse = { user_id: string, role: MemberRole, };
+
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
+
+// --- BEGIN deprecated stubs (SMS2-793 frontend cleanup pending) ---
+
+export type TokenResponse = { access_token: string, expires_at: string | null, };
+
+export type CurrentUserResponse = { user_id: string, };
+
+export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, };
+
+export type RelayPairedClient = { client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, };
+
+export type ListRelayPairedClientsResponse = { clients: Array<RelayPairedClient>, };
+
+export type RemoveRelayPairedClientResponse = { removed: boolean, };
+
+export type PairRelayHostRequest = { host_id: string, host_name: string, enrollment_code: string, };
+
+export type PairRelayHostResponse = { paired: boolean, };
+
+export type RelayPairedHost = { host_id: string, host_name: string | null, paired_at: string | null, };
+
+export type ListRelayPairedHostsResponse = { hosts: Array<RelayPairedHost>, };
+
+export type RemoveRelayPairedHostResponse = { removed: boolean, };
+
+export type StartSpake2EnrollmentRequest = { enrollment_code: string, client_message_b64: string, };
+
+export type StartSpake2EnrollmentResponse = { enrollment_id: string, server_message_b64: string, };
+
+export type FinishSpake2EnrollmentRequest = { enrollment_id: string, client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, public_key_b64: string, client_proof_b64: string, };
+
+export type FinishSpake2EnrollmentResponse = { signing_session_id: string, server_public_key_b64: string, server_proof_b64: string, };
+
+export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
+
+export type OpenRemoteWorkspaceInEditorRequest = { host_id: string, workspace_id: string, editor_type: string | null, file_path: string | null, };
+
+export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
 
 export type RelayWsMessageType = "text" | "binary" | "ping" | "pong" | "close";
 
-export type DataChannelMessage = { "type": "http_request" } & DataChannelRequest | { "type": "http_response" } & DataChannelResponse | { "type": "ws_open" } & WsOpen | { "type": "ws_opened" } & WsOpened | { "type": "ws_frame" } & WsFrame | { "type": "ws_close" } & WsClose | { "type": "ws_error" } & WsError;
+export type WsOpen = { conn_id: string, path: string, protocols?: string, };
 
-export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> }, 
-/**
- * Base64-encoded request body, if any.
- */
-body_b64?: string | null, };
+export type WsOpened = { conn_id: string, selected_protocol?: string, };
 
-export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> }, 
-/**
- * Base64-encoded response body, if any.
- */
-body_b64?: string | null, };
+export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType, payload_b64?: string, };
 
-export type WsOpen = { 
-/**
- * Unique connection ID for multiplexing.
- */
-conn_id: string, 
-/**
- * Target path, e.g. `/api/sessions/abc/queue`.
- */
-path: string, 
-/**
- * Optional sub-protocol(s) to negotiate.
- */
-protocols?: string | null, };
-
-export type WsOpened = { conn_id: string, 
-/**
- * The sub-protocol selected by the server, if any.
- */
-selected_protocol?: string | null, };
-
-export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType, 
-/**
- * Base64-encoded payload.
- */
-payload_b64?: string | null, };
-
-export type WsClose = { conn_id: string, 
-/**
- * Close code (RFC 6455 §7.4).
- */
-code?: number | null, 
-/**
- * Close reason.
- */
-reason?: string | null, };
+export type WsClose = { conn_id: string, code?: number, reason?: string, };
 
 export type WsError = { conn_id: string, error: string, };
 
-export type SdpOffer = { 
-/**
- * The SDP string from the peer's `RTCPeerConnection.createOffer()`.
- */
-sdp: string, 
-/**
- * Caller-provided session identifier to correlate offer/answer/candidates.
- */
-session_id: string, };
+export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> }, body_b64?: string, };
 
-export type SdpAnswer = { 
-/**
- * The SDP string from `Rtc::direct_api().create_answer()`.
- */
-sdp: string, 
-/**
- * Echoed session identifier from the offer.
- */
-session_id: string, };
+export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> }, body_b64?: string, };
+
+export type DataChannelMessage =
+    | { type: "http_request" } & DataChannelRequest
+    | { type: "http_response" } & DataChannelResponse
+    | { type: "ws_open" } & WsOpen
+    | { type: "ws_opened" } & WsOpened
+    | { type: "ws_frame" } & WsFrame
+    | { type: "ws_close" } & WsClose
+    | { type: "ws_error" } & WsError;
+
+export type SdpOffer = { sdp: string, session_id: string, };
+
+export type SdpAnswer = { sdp: string, session_id: string, };
+
+// --- END deprecated stubs ---
 
 export const DEFAULT_PR_DESCRIPTION_PROMPT = "Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with \"(Vibe Kanban)\"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: \"This PR was written using [Vibe Kanban](https://vibekanban.com)\"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).";
 

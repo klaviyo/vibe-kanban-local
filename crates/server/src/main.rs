@@ -2,7 +2,7 @@ use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl, middleware::origin::validate_origin, routes,
     startup::perform_cleanup_actions,
 };
 use services::services::container::ContainerService;
@@ -15,7 +15,6 @@ use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
     assets::{CutoverError, asset_dir, ensure_db_v3},
     port_file::write_port_file_with_proxy,
-    sentry::{self as sentry_utils, SentrySource, sentry_layer},
 };
 
 #[derive(Debug, Error)]
@@ -39,17 +38,14 @@ async fn main() -> Result<(), VibeKanbanError> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    sentry_utils::init_once(SentrySource::Backend);
-
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},embedded_ssh={level},desktop_bridge={level},relay_hosts={level},relay_client={level},relay_webrtc={level},codex_core=off",
+        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},codex_core=off",
         level = log_level
     );
     let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
-        .with(sentry_layer())
         .init();
 
     // Create asset directory if it doesn't exist
@@ -65,7 +61,6 @@ async fn main() -> Result<(), VibeKanbanError> {
     let shutdown_token = CancellationToken::new();
 
     let deployment = DeploymentImpl::new(shutdown_token.clone()).await?;
-    deployment.update_sentry_scope().await?;
     deployment
         .container()
         .cleanup_orphan_executions()
@@ -81,9 +76,6 @@ async fn main() -> Result<(), VibeKanbanError> {
         .backfill_repo_names()
         .await
         .map_err(DeploymentError::from)?;
-    deployment
-        .track_if_analytics_allowed("session_start", serde_json::json!({}))
-        .await;
     // Preload global executor options cache for all executors with DEFAULT presets
     tokio::spawn(async move {
         executors::executors::utils::preload_global_executor_options_cache().await;
@@ -174,8 +166,6 @@ async fn main() -> Result<(), VibeKanbanError> {
             tracing::error!("Preview proxy error: {}", e);
         }
     });
-
-    relay_registration::spawn_relay(&deployment).await;
 
     // Borrow handles via `&mut` so they survive the select and can be awaited
     // again inside `perform_cleanup_actions` for full drain.
