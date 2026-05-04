@@ -12,6 +12,12 @@ import '@/shared/types/modals';
 import { queryClient } from '@/shared/lib/queryClient';
 import { isTauriApp } from '@/shared/lib/platform';
 import { initZoom, zoomIn, zoomOut, zoomReset } from '@/shared/lib/zoom';
+import { purgePriorElectricCacheOnce } from '@web/app/entry/cutoverCachePurge';
+
+// Kick off the one-shot cutover purge before any rendering. We gate
+// `createRoot` below on this promise so router/query initialization cannot
+// read the stale wa-sqlite IndexedDB contents.
+const cutoverPurge = purgePriorElectricCacheOnce();
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -84,13 +90,15 @@ configureAuthRuntime({
   getCurrentUser: () => oauthApi.getCurrentUser(),
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <ClickToComponent />
-        <App />
-      </ErrorBoundary>
-    </QueryClientProvider>
-  </React.StrictMode>
-);
+void cutoverPurge.finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <ErrorBoundary>
+          <ClickToComponent />
+          <App />
+        </ErrorBoundary>
+      </QueryClientProvider>
+    </React.StrictMode>
+  );
+});
