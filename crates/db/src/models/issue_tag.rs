@@ -45,6 +45,29 @@ impl IssueTag {
         .await
     }
 
+    /// Lists tag-links across every issue in the given project. Used by
+    /// the kanban frontend's project-scoped issue-tag shape (it pulls
+    /// links for all visible issues at once, rather than fetching
+    /// per-issue). Mirrors `IssueFollower::find_by_project`.
+    pub async fn find_by_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueTag,
+            r#"SELECT t.id       as "id!: Uuid",
+                      t.issue_id as "issue_id!: Uuid",
+                      t.tag_id   as "tag_id!: Uuid"
+               FROM issue_tags t
+               INNER JOIN issues i ON i.id = t.issue_id
+               WHERE i.project_id = $1
+               ORDER BY t.id ASC"#,
+            project_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         id: Uuid,

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pri.id              as \"id!: Uuid\",\n                      pri.pull_request_id as \"pull_request_id!: String\",\n                      pri.issue_id        as \"issue_id!: Uuid\"\n               FROM pull_request_issues pri\n               INNER JOIN issues i ON i.id = pri.issue_id\n               WHERE i.project_id = $1\n               ORDER BY pri.id ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "pull_request_id!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "15f3702f304d717e5b5a55eb4279db5abaf00ca8d9793d990055f83d2722eddd"
+}
