@@ -1,8 +1,10 @@
-use api_types as wire;
+use api_types::{self as wire, DeleteResponse, MutationResponse};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct User {
@@ -88,8 +90,12 @@ impl User {
         .await
     }
 
-    pub async fn create(pool: &SqlitePool, data: &CreateUser) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateUser,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             User,
             r#"INSERT INTO users (id, email, first_name, last_name, username)
                VALUES ($1, $2, $3, $4, $5)
@@ -106,15 +112,18 @@ impl User {
             data.last_name,
             data.username,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         data: &UpdateUser,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
         let update_first_name = data.first_name.is_some();
         let first_name_value = data.first_name.clone().flatten();
         let update_last_name = data.last_name.is_some();
@@ -122,7 +131,8 @@ impl User {
         let update_username = data.username.is_some();
         let username_value = data.username.clone().flatten();
 
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
             User,
             r#"UPDATE users
                SET first_name = CASE WHEN $2 THEN $3 ELSE first_name END,
@@ -145,15 +155,21 @@ impl User {
             update_username,
             username_value,
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
     }
 
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM users WHERE id = $1", id)
-            .execute(pool)
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM users WHERE id = $1", id)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 }
 

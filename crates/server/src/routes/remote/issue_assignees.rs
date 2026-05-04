@@ -1,5 +1,6 @@
 use api_types::{
-    CreateIssueAssigneeRequest, IssueAssignee, ListIssueAssigneesResponse, MutationResponse,
+    CreateIssueAssigneeRequest, DeleteResponse, IssueAssignee, ListIssueAssigneesResponse,
+    MutationResponse,
 };
 use axum::{
     Router,
@@ -13,7 +14,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListIssueAssigneesQuery {
@@ -61,18 +62,18 @@ async fn create_issue_assignee(
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueAssignee>>>, ApiError> {
     let pool = &deployment.db().pool;
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let row = IssueAssigneeRow::create(pool, id, &request).await?;
+    let response = IssueAssigneeRow::create(pool, id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: IssueAssignee::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
 async fn delete_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Path(issue_assignee_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    IssueAssigneeRow::delete(pool, issue_assignee_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = IssueAssigneeRow::delete(pool, issue_assignee_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }

@@ -370,7 +370,7 @@ fn derive_issue_prefix(name: &str) -> String {
     let letters: String = name.chars().filter(|c| c.is_ascii_alphabetic()).collect();
     let prefix: String = letters.chars().take(3).collect::<String>().to_uppercase();
     if prefix.is_empty() {
-        "ISS".to_string()
+        "VK".to_string()
     } else {
         prefix
     }

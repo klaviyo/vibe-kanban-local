@@ -116,7 +116,7 @@ async fn create_organization(
     let pool = &deployment.db().pool;
     let user = synthetic::local_user(&deployment).await?;
 
-    let org = Organization::create(pool, Uuid::new_v4(), &request).await?;
+    let org = Organization::create(pool, Uuid::new_v4(), &request).await?.data;
 
     OrganizationMember::create(
         pool,
@@ -150,7 +150,7 @@ async fn update_organization(
     Json(request): Json<UpdateOrganizationRequest>,
 ) -> Result<ResponseJson<ApiResponse<WireOrganization>>, ApiError> {
     let pool = &deployment.db().pool;
-    let updated = Organization::update(pool, id, &request).await?;
+    let updated = Organization::update(pool, id, &request).await?.data;
     Ok(ResponseJson(ApiResponse::success(WireOrganization::from(
         updated,
     ))))

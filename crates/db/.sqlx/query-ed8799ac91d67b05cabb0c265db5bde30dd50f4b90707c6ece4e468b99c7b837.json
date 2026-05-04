@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO identity_seed_marker\n                   (id, organization_id, user_id, project_id, host_identity, host_label)\n               VALUES (2, $1, $2, $3, 'x', 'y')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ed8799ac91d67b05cabb0c265db5bde30dd50f4b90707c6ece4e468b99c7b837"
+}

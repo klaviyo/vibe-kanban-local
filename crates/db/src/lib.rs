@@ -7,6 +7,7 @@ use sqlx::{
 };
 use utils::assets::db_v3_path;
 
+pub mod identity_seeder;
 pub mod models;
 
 fn database_url() -> String {

@@ -1,5 +1,5 @@
 use api_types::{
-    CreateIssueRelationshipRequest, IssueRelationship, ListIssueRelationshipsQuery,
+    CreateIssueRelationshipRequest, DeleteResponse, IssueRelationship, ListIssueRelationshipsQuery,
     ListIssueRelationshipsResponse, MutationResponse,
 };
 use axum::{
@@ -13,7 +13,7 @@ use deployment::Deployment;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
+use crate::{DeploymentImpl, error::ApiError};
 
 pub(super) fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -48,18 +48,18 @@ async fn create_issue_relationship(
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueRelationship>>>, ApiError> {
     let pool = &deployment.db().pool;
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let row = IssueRelationshipRow::create(pool, id, &request).await?;
+    let response = IssueRelationshipRow::create(pool, id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(MutationResponse {
-        data: IssueRelationship::from(row),
-        txid: synthetic::txid(),
+        data: response.data.into(),
+        txid: response.txid,
     })))
 }
 
 async fn delete_issue_relationship(
     State(deployment): State<DeploymentImpl>,
     Path(relationship_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    IssueRelationshipRow::delete(pool, relationship_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = IssueRelationshipRow::delete(pool, relationship_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
