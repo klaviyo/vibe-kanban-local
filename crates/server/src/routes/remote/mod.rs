@@ -2,32 +2,39 @@ use axum::Router;
 
 use crate::DeploymentImpl;
 
-mod cutover_stubs;
 mod issue_assignees;
+mod issue_comment_reactions;
+mod issue_comments;
+mod issue_followers;
 mod issue_relationships;
 mod issue_tags;
 mod issues;
+mod notifications;
+mod organization_member_metadata;
 mod project_statuses;
 mod projects;
 pub mod pull_requests;
 mod tags;
+mod users;
 mod workspaces;
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .merge(issue_assignees::router())
+        .merge(issue_comment_reactions::router())
+        .merge(issue_comments::router())
+        .merge(issue_followers::router())
         .merge(issue_relationships::router())
         .merge(issue_tags::router())
         .merge(issues::router())
+        .merge(notifications::router())
+        .merge(organization_member_metadata::router())
         .merge(projects::router())
         .merge(project_statuses::router())
         .merge(pull_requests::router())
         .merge(tags::router())
+        .merge(users::router())
         .merge(workspaces::router())
-        // Cutover read-side stubs for the 6 entity shapes the kanban frontend
-        // resolves through `localRouteResolver` but whose full CRUD routes
-        // have not yet been wired (CRITICAL #6b — Round 2 follow-up).
-        .merge(cutover_stubs::router())
 }
 
 #[cfg(test)]

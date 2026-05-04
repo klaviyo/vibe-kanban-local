@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT f.id       as \"id!: Uuid\",\n                      f.issue_id as \"issue_id!: Uuid\",\n                      f.user_id  as \"user_id!: Uuid\"\n               FROM issue_followers f\n               INNER JOIN issues i ON i.id = f.issue_id\n               WHERE i.project_id = $1\n               ORDER BY f.id ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "42b4aaddfe06db476548a9c26523f50138a50c150165c31efcfeedaa6e7090b1"
+}

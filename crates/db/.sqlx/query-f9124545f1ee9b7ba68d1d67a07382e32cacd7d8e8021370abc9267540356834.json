@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id         as \"id!: Uuid\",\n                      r.comment_id as \"comment_id!: Uuid\",\n                      r.user_id    as \"user_id!: Uuid\",\n                      r.emoji,\n                      r.created_at as \"created_at!: DateTime<Utc>\"\n               FROM issue_comment_reactions r\n               INNER JOIN issue_comments c ON c.id = r.comment_id\n               WHERE c.issue_id = $1\n               ORDER BY r.created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "comment_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "emoji",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f9124545f1ee9b7ba68d1d67a07382e32cacd7d8e8021370abc9267540356834"
+}

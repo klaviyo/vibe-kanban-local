@@ -47,6 +47,29 @@ impl IssueFollower {
         .await
     }
 
+    /// Lists followers across every issue in the given project. Used by
+    /// the kanban frontend's project-scoped follower shape (it pulls
+    /// followers for all visible issues at once, rather than fetching
+    /// per-issue).
+    pub async fn find_by_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueFollower,
+            r#"SELECT f.id       as "id!: Uuid",
+                      f.issue_id as "issue_id!: Uuid",
+                      f.user_id  as "user_id!: Uuid"
+               FROM issue_followers f
+               INNER JOIN issues i ON i.id = f.issue_id
+               WHERE i.project_id = $1
+               ORDER BY f.id ASC"#,
+            project_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         id: Uuid,

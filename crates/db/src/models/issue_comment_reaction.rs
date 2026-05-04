@@ -64,6 +64,31 @@ impl IssueCommentReaction {
         .await
     }
 
+    /// Lists reactions across every comment on the given issue. Used by
+    /// the kanban frontend's issue-scoped reaction shape (it pulls
+    /// reactions for all comments on an issue at once, rather than
+    /// fetching per-comment).
+    pub async fn find_by_issue(
+        pool: &SqlitePool,
+        issue_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueCommentReaction,
+            r#"SELECT r.id         as "id!: Uuid",
+                      r.comment_id as "comment_id!: Uuid",
+                      r.user_id    as "user_id!: Uuid",
+                      r.emoji,
+                      r.created_at as "created_at!: DateTime<Utc>"
+               FROM issue_comment_reactions r
+               INNER JOIN issue_comments c ON c.id = r.comment_id
+               WHERE c.issue_id = $1
+               ORDER BY r.created_at ASC"#,
+            issue_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         data: &CreateIssueCommentReaction,
