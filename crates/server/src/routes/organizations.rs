@@ -128,15 +128,6 @@ async fn create_organization(
     )
     .await?;
 
-    deployment
-        .track_if_analytics_allowed(
-            "organization_created",
-            serde_json::json!({
-                "org_id": org.id.to_string(),
-            }),
-        )
-        .await;
-
     let response = CreateOrganizationResponse {
         organization: synthetic::organization_with_role(org, MemberRole::Admin),
     };

@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod codex_setup;
 pub mod core;
 pub mod create;
@@ -6,6 +7,7 @@ pub mod execution;
 pub mod gh_cli_setup;
 pub mod git;
 pub mod integration;
+pub mod links;
 pub mod pr;
 pub mod repos;
 pub mod streams;
