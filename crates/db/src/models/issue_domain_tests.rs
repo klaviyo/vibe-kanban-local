@@ -1071,6 +1071,376 @@ async fn issue_tag_find_by_issue_orders_by_id() {
     assert_eq!(listed, vec![id_c, id_b, id_a]);
 }
 
+// === Project-scoped link readers ===
+//
+// These verify that the project-scoped variants the kanban frontend's
+// project-shape subscriptions hit (see `LOCAL_ROUTES_BY_TABLE` on the
+// `localRouteResolver`) only surface rows from the requested project,
+// across every issue in that project — not just one.
+
+#[tokio::test]
+async fn issue_assignee_find_by_project_scopes_to_project() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue_in = make_issue(&pool, &fx).await;
+    let issue_in_2 = make_issue(&pool, &fx).await;
+
+    // A second project in the SAME org (so the simple_id counter stays
+    // unique without prefix collisions) — but a different `project_id`,
+    // which is what `find_by_project` filters on.
+    let other_project = ProjectRow::create(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            name: "Other".into(),
+            color: "#000".into(),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_status = ProjectStatus::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateProjectStatusRequest {
+            id: None,
+            project_id: other_project.id,
+            name: "Backlog".into(),
+            color: "#111".into(),
+            sort_order: 0,
+            hidden: false,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let issue_out = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            creator_user_id: Some(fx.user.id),
+            request: create_issue_request(other_project.id, other_status.id),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+
+    let user2 = User::create(
+        &pool,
+        &CreateUser {
+            id: Uuid::new_v4(),
+            email: format!("u2-{}@e.com", Uuid::new_v4().simple()),
+            first_name: None,
+            last_name: None,
+            username: None,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+
+    IssueAssignee::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueAssigneeRequest {
+            id: None,
+            issue_id: issue_in.id,
+            user_id: fx.user.id,
+        },
+    )
+    .await
+    .unwrap();
+    IssueAssignee::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueAssigneeRequest {
+            id: None,
+            issue_id: issue_in_2.id,
+            user_id: user2.id,
+        },
+    )
+    .await
+    .unwrap();
+    IssueAssignee::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueAssigneeRequest {
+            id: None,
+            issue_id: issue_out.id,
+            user_id: fx.user.id,
+        },
+    )
+    .await
+    .unwrap();
+
+    let in_project = IssueAssignee::find_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(in_project.len(), 2);
+    let issue_ids: std::collections::HashSet<Uuid> =
+        in_project.iter().map(|a| a.issue_id).collect();
+    assert!(issue_ids.contains(&issue_in.id));
+    assert!(issue_ids.contains(&issue_in_2.id));
+    assert!(!issue_ids.contains(&issue_out.id));
+}
+
+#[tokio::test]
+async fn issue_tag_find_by_project_scopes_to_project() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx).await;
+
+    // Tag in this project, link via issue_tag.
+    IssueTag::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueTagRequest {
+            id: None,
+            issue_id: issue.id,
+            tag_id: fx.tag.id,
+        },
+    )
+    .await
+    .unwrap();
+
+    // A second project + tag + issue + link that must NOT leak. Same
+    // org so simple_id counter increments cleanly without prefix collision.
+    let other_project = ProjectRow::create(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            name: "Other".into(),
+            color: "#000".into(),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_status = ProjectStatus::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateProjectStatusRequest {
+            id: None,
+            project_id: other_project.id,
+            name: "Backlog".into(),
+            color: "#000".into(),
+            sort_order: 0,
+            hidden: false,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_issue = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            creator_user_id: Some(fx.user.id),
+            request: create_issue_request(other_project.id, other_status.id),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_tag = ProjectTag::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateTagRequest {
+            id: None,
+            project_id: other_project.id,
+            name: "x".into(),
+            color: "#000".into(),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    IssueTag::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueTagRequest {
+            id: None,
+            issue_id: other_issue.id,
+            tag_id: other_tag.id,
+        },
+    )
+    .await
+    .unwrap();
+
+    let in_project = IssueTag::find_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(in_project.len(), 1);
+    assert_eq!(in_project[0].issue_id, issue.id);
+}
+
+#[tokio::test]
+async fn issue_relationship_find_by_project_scopes_to_source_issue_project() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue_a = make_issue(&pool, &fx).await;
+    let issue_b = make_issue(&pool, &fx).await;
+
+    IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: issue_a.id,
+            related_issue_id: issue_b.id,
+            relationship_type: WireRelType::Related,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Cross-project relationship: source issue in another project, target in this project.
+    // Per find_by_project's contract (anchored on source issue's project_id),
+    // the row must NOT appear when filtering by `fx.project.id`.
+    // Same org so simple_id counter increments cleanly.
+    let other_project = ProjectRow::create(
+        &pool,
+        &CreateProject {
+            id: Uuid::new_v4(),
+            organization_id: fx.organization.id,
+            name: "Other".into(),
+            color: "#000".into(),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_status = ProjectStatus::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateProjectStatusRequest {
+            id: None,
+            project_id: other_project.id,
+            name: "Backlog".into(),
+            color: "#000".into(),
+            sort_order: 0,
+            hidden: false,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    let other_issue = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            creator_user_id: Some(fx.user.id),
+            request: create_issue_request(other_project.id, other_status.id),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: other_issue.id,
+            related_issue_id: issue_a.id,
+            relationship_type: WireRelType::Related,
+        },
+    )
+    .await
+    .unwrap();
+
+    let in_project = IssueRelationship::find_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(in_project.len(), 1);
+    assert_eq!(in_project[0].issue_id, issue_a.id);
+    assert_eq!(in_project[0].related_issue_id, issue_b.id);
+}
+
+#[tokio::test]
+async fn workspace_issue_link_find_by_project_scopes_to_project() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx).await;
+
+    WorkspaceIssueLink::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateWorkspaceIssueLinkRequest {
+            id: None,
+            workspace_id: fx.workspace.id,
+            issue_id: issue.id,
+            project_id: fx.project.id,
+        },
+    )
+    .await
+    .unwrap();
+
+    let in_project = WorkspaceIssueLink::find_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(in_project.len(), 1);
+    assert_eq!(in_project[0].issue_id, issue.id);
+
+    // A different project id surfaces nothing.
+    let empty = WorkspaceIssueLink::find_by_project(&pool, Uuid::new_v4())
+        .await
+        .unwrap();
+    assert!(empty.is_empty());
+}
+
+#[tokio::test]
+async fn pull_request_issue_list_by_project_returns_linked_prs() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue_a = make_issue(&pool, &fx).await;
+    let issue_b = make_issue(&pool, &fx).await;
+
+    let pr_a = PullRequest::create(
+        &pool,
+        None,
+        None,
+        "https://example.com/p/1",
+        1,
+        "main",
+    )
+    .await
+    .unwrap();
+    let pr_b = PullRequest::create(
+        &pool,
+        None,
+        None,
+        "https://example.com/p/2",
+        2,
+        "main",
+    )
+    .await
+    .unwrap();
+
+    PullRequestIssueRepository::link(&pool, &pr_a.id, issue_a.id)
+        .await
+        .unwrap();
+    PullRequestIssueRepository::link(&pool, &pr_b.id, issue_b.id)
+        .await
+        .unwrap();
+
+    let listed = PullRequestIssueRepository::list_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 2);
+
+    let links = PullRequestIssueRepository::list_links_by_project(&pool, fx.project.id)
+        .await
+        .unwrap();
+    assert_eq!(links.len(), 2);
+    let issue_ids: std::collections::HashSet<Uuid> = links.iter().map(|l| l.issue_id).collect();
+    assert!(issue_ids.contains(&issue_a.id));
+    assert!(issue_ids.contains(&issue_b.id));
+}
+
 // === Wire conversion JSON fixture tests ===
 //
 // These tests pin the byte-stable JSON shape produced by the

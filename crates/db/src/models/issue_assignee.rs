@@ -51,6 +51,30 @@ impl IssueAssignee {
         .await
     }
 
+    /// Lists assignees across every issue in the given project. Used by
+    /// the kanban frontend's project-scoped assignee shape (it pulls
+    /// assignees for all visible issues at once, rather than fetching
+    /// per-issue). Mirrors `IssueFollower::find_by_project`.
+    pub async fn find_by_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueAssignee,
+            r#"SELECT a.id          as "id!: Uuid",
+                      a.issue_id    as "issue_id!: Uuid",
+                      a.user_id     as "user_id!: Uuid",
+                      a.assigned_at as "assigned_at!: DateTime<Utc>"
+               FROM issue_assignees a
+               INNER JOIN issues i ON i.id = a.issue_id
+               WHERE i.project_id = $1
+               ORDER BY a.assigned_at ASC"#,
+            project_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         id: Uuid,

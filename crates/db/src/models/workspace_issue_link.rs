@@ -55,6 +55,35 @@ impl WorkspaceIssueLink {
         .await
     }
 
+    /// Lists every workspace-issue link within the given project. Used by
+    /// the kanban frontend's project-scoped workspaces shape: the cloud
+    /// product had a dedicated `workspaces` table with a `project_id`
+    /// column, but in local mode the canonical workspace<->project
+    /// relationship lives on the link rows themselves (a workspace's
+    /// project is derived from the issue it is linked to). Returning the
+    /// distinct underlying `workspaces.id`s in a separate query would
+    /// require a second round-trip; the route synthesizes wire-shape
+    /// `Workspace` rows directly from these link rows.
+    pub async fn find_by_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            WorkspaceIssueLink,
+            r#"SELECT id           as "id!: Uuid",
+                      workspace_id as "workspace_id!: Uuid",
+                      issue_id     as "issue_id!: Uuid",
+                      project_id   as "project_id!: Uuid",
+                      created_at   as "created_at!: DateTime<Utc>"
+               FROM workspace_issue_links
+               WHERE project_id = $1
+               ORDER BY created_at ASC"#,
+            project_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn find_by_workspace(
         pool: &SqlitePool,
         workspace_id: Uuid,
