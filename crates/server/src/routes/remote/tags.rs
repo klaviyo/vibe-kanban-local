@@ -1,4 +1,6 @@
-use api_types::{CreateTagRequest, ListTagsResponse, MutationResponse, Tag, UpdateTagRequest};
+use api_types::{
+    CreateTagRequest, DeleteResponse, ListTagsResponse, MutationResponse, Tag, UpdateTagRequest,
+};
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
@@ -79,8 +81,37 @@ async fn update_tag(
 async fn delete_tag(
     State(deployment): State<DeploymentImpl>,
     Path(tag_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    ProjectTag::delete(pool, tag_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = ProjectTag::delete(pool, tag_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+#[cfg(test)]
+mod tests {
+    use api_types::DeleteResponse;
+    use serde_json::json;
+    use utils::response::ApiResponse;
+
+    /// Sibling routes (issues, issue_followers, issue_assignees, issue_tags,
+    /// issue_relationships, issue_comments, issue_comment_reactions) all
+    /// surface `DeleteResponse { txid }` on delete so the kanban's
+    /// optimistic-update reconciler can match the optimistic write to the
+    /// committed mutation. Returning `ApiResponse<()>` would silently drop
+    /// the txid and break that reconciler for tag deletes.
+    #[test]
+    fn delete_envelope_preserves_txid_on_the_wire() {
+        let envelope: ApiResponse<DeleteResponse> =
+            ApiResponse::success(DeleteResponse { txid: 17 });
+        let body = serde_json::to_value(&envelope).expect("serialize envelope");
+        assert_eq!(
+            body,
+            json!({
+                "success": true,
+                "data": { "txid": 17 },
+                "error_data": null,
+                "message": null,
+            }),
+        );
+    }
 }
