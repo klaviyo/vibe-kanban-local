@@ -51,6 +51,14 @@ FORBIDDEN=(
 # paths only with justification in the same commit.
 ALLOWLIST=(
   "scripts/check-frontend-vendor-leaks.sh"
+  # The first-launch cache purge needs to name the prior Electric / wa-sqlite
+  # IndexedDB databases by string so they can be deleted before the kanban
+  # frontend loads under the new local-routes data layer (PR #3 / SMS2-792).
+  # The names are referenced as data, not imported as modules; tree-shaking
+  # cannot pull in code that does not exist.
+  "packages/local-web/src/app/entry/cutoverCachePurge.ts"
+  "packages/local-web/src/app/entry/cutoverCachePurge.test.ts"
+  "packages/local-web/src/app/entry/Bootstrap.tsx"
 )
 
 is_allowlisted() {
