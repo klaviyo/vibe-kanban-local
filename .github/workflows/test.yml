@@ -178,7 +178,7 @@ jobs:
         run: |
           npx concurrently \
             --kill-others-on-fail \
-            --names "local:lint,local:fmt,local:build,remote:fmt,remote:build,ui:check,ui:lint,ui:fmt,core:check,core:fmt,i18n,i18n:unused,legacy" \
+            --names "local:lint,local:fmt,local:build,remote:fmt,remote:build,ui:check,ui:lint,ui:fmt,core:check,core:fmt,i18n,i18n:unused,legacy,vendor-leak" \
             --timings \
             "cd packages/local-web && npm run lint" \
             "cd packages/local-web && npm run format:check" \
@@ -192,7 +192,8 @@ jobs:
             "cd packages/web-core && npm run format:check" \
             "GITHUB_BASE_REF=${{ github.base_ref || 'main' }} ./scripts/check-i18n.sh" \
             "node scripts/check-unused-i18n-keys.mjs" \
-            "./scripts/check-legacy-frontend-paths.sh"
+            "./scripts/check-legacy-frontend-paths.sh" \
+            "pnpm run local-web:vendor-leak-guard"
 
   backend-schema-checks:
     needs: changes
