@@ -336,9 +336,9 @@ export type OpenEditorRequest = { editor_type: string | null, file_path: string 
 
 export type OpenEditorResponse = { url: string | null, };
 
-export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
-
 export type OpenRemoteWorkspaceInEditorRequest = { host_id: string, workspace_id: string, editor_type: string | null, file_path: string | null, };
+
+export type OpenRemoteEditorResponse = { url: string, local_port: number, ssh_alias: string, };
 
 export type PairRelayHostRequest = { host_id: string, host_name: string, enrollment_code: string, };
 
@@ -384,10 +384,6 @@ export type RunScriptError = { "type": "no_script_configured" } | { "type": "pro
 
 export type AssociateWorkspaceAttachmentsRequest = { attachment_ids: Array<string>, };
 
-export type ImportIssueAttachmentsRequest = { issue_id: string, };
-
-export type ImportIssueAttachmentsResponse = { attachment_ids: Array<string>, };
-
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
 
 export type AttachExistingPrRequest = { repo_id: string, };
@@ -412,7 +408,7 @@ export type GitRemote = { name: string, url: string, };
 
 export type ListPrsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "auth_failed", message: string, } | { "type": "unsupported_provider" };
 
-export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, };
+export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, issue_id: string, };
 
 export type CreateWorkspaceFromPrBody = { repo_id: string, pr_number: bigint, pr_title: string, pr_url: string, head_branch: string, base_branch: string, run_setup: boolean, remote_name: string | null, };
 

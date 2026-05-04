@@ -10,7 +10,7 @@ path = "src/bin/relay_server.rs"
 
 [dependencies]
 relay-tunnel-core = { path = "../relay-tunnel-core" }
-api-types = { path = "../api-types" }
+api-types = { path = "../api-types", features = ["sqlx"] }
 relay-types = { path = "../relay-types" }
 anyhow = "1.0"
 axum = { version = "0.8.4", features = ["macros", "multipart", "ws"] }

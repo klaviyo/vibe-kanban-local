@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO organizations (id, name, slug, is_personal, issue_prefix)\n               VALUES ($1, $2, $3, TRUE, 'VK')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "befe2b81198c811a88b9a6785d3499c3cc12f38c061581a66bfca5f2c70ebb84"
+}

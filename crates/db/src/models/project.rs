@@ -1,8 +1,11 @@
+use api_types::{self as wire, DeleteResponse, MutationResponse, project::UpdateProjectRequest};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
+
+use super::mutation_log;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Project {
@@ -14,6 +17,29 @@ pub struct Project {
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
+}
+
+/// Cloud-shape projection of `projects`. Includes the additive columns
+/// (`organization_id`, `color`, `sort_order`) introduced by the issue-domain
+/// migrations and excludes local-only fields. `organization_id` remains
+/// nullable until the synthetic-organization seeder backfills pre-cutover rows.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ProjectRow {
+    pub id: Uuid,
+    pub organization_id: Option<Uuid>,
+    pub name: String,
+    pub color: String,
+    pub sort_order: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateProject {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub name: String,
+    pub color: String,
 }
 
 impl Project {
@@ -49,5 +75,233 @@ impl Project {
         .await?;
 
         Ok(())
+    }
+}
+
+impl ProjectRow {
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            ProjectRow,
+            r#"SELECT id              as "id!: Uuid",
+                      organization_id as "organization_id: Uuid",
+                      name,
+                      color,
+                      sort_order,
+                      created_at      as "created_at!: DateTime<Utc>",
+                      updated_at      as "updated_at!: DateTime<Utc>"
+               FROM projects
+               WHERE id = $1"#,
+            id,
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn find_by_organization(
+        pool: &SqlitePool,
+        organization_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            ProjectRow,
+            r#"SELECT id              as "id!: Uuid",
+                      organization_id as "organization_id: Uuid",
+                      name,
+                      color,
+                      sort_order,
+                      created_at      as "created_at!: DateTime<Utc>",
+                      updated_at      as "updated_at!: DateTime<Utc>"
+               FROM projects
+               WHERE organization_id = $1
+               ORDER BY sort_order ASC, created_at ASC"#,
+            organization_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateProject,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
+            ProjectRow,
+            r#"INSERT INTO projects (id, organization_id, name, color)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id              as "id!: Uuid",
+                         organization_id as "organization_id: Uuid",
+                         name,
+                         color,
+                         sort_order,
+                         created_at      as "created_at!: DateTime<Utc>",
+                         updated_at      as "updated_at!: DateTime<Utc>""#,
+            data.id,
+            data.organization_id,
+            data.name,
+            data.color,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
+    /// Creates a project and seeds the canonical six default statuses in one
+    /// transaction. The cloud contract requires that a project never be
+    /// observable in a statusless state; running both inserts under a single
+    /// transaction guarantees that — readers only see the project once its
+    /// statuses also exist, and a status-insert failure rolls the project
+    /// back. Order matches the cloud's seeder so the kanban board renders
+    /// identically.
+    pub async fn create_with_default_statuses(
+        pool: &SqlitePool,
+        data: &CreateProject,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        const DEFAULT_PROJECT_STATUSES: [(&str, &str, bool); 6] = [
+            ("Backlog", "#94a3b8", false),
+            ("Todo", "#3b82f6", false),
+            ("In Progress", "#f59e0b", false),
+            ("In Review", "#a855f7", false),
+            ("Done", "#22c55e", false),
+            ("Cancelled", "#ef4444", true),
+        ];
+
+        let mut tx = pool.begin().await?;
+
+        let row = sqlx::query_as!(
+            ProjectRow,
+            r#"INSERT INTO projects (id, organization_id, name, color)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id              as "id!: Uuid",
+                         organization_id as "organization_id: Uuid",
+                         name,
+                         color,
+                         sort_order,
+                         created_at      as "created_at!: DateTime<Utc>",
+                         updated_at      as "updated_at!: DateTime<Utc>""#,
+            data.id,
+            data.organization_id,
+            data.name,
+            data.color,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        for (idx, (name, color, hidden)) in DEFAULT_PROJECT_STATUSES.iter().enumerate() {
+            let status_id = Uuid::new_v4();
+            let sort_order = idx as i64;
+            let name_str = (*name).to_string();
+            let color_str = (*color).to_string();
+            let hidden_v = *hidden;
+            sqlx::query!(
+                r#"INSERT INTO project_statuses (id, project_id, name, color, sort_order, hidden)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
+                status_id,
+                row.id,
+                name_str,
+                color_str,
+                sort_order,
+                hidden_v,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: Uuid,
+        data: &UpdateProjectRequest,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let update_name = data.name.is_some();
+        let name_value = data.name.clone();
+        let update_color = data.color.is_some();
+        let color_value = data.color.clone();
+        let update_sort_order = data.sort_order.is_some();
+        let sort_order_value = data.sort_order.map(i64::from);
+
+        let mut tx = pool.begin().await?;
+        let row = sqlx::query_as!(
+            ProjectRow,
+            r#"UPDATE projects
+               SET name       = CASE WHEN $2 THEN $3 ELSE name END,
+                   color      = CASE WHEN $4 THEN $5 ELSE color END,
+                   sort_order = CASE WHEN $6 THEN $7 ELSE sort_order END,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = $1
+               RETURNING id              as "id!: Uuid",
+                         organization_id as "organization_id: Uuid",
+                         name,
+                         color,
+                         sort_order,
+                         created_at      as "created_at!: DateTime<Utc>",
+                         updated_at      as "updated_at!: DateTime<Utc>""#,
+            id,
+            update_name,
+            name_value,
+            update_color,
+            color_value,
+            update_sort_order,
+            sort_order_value,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query!("DELETE FROM projects WHERE id = $1", id)
+            .execute(&mut *tx)
+            .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
+    }
+}
+
+/// Returned when a `ProjectRow` cannot be projected to the cloud-shape wire
+/// `Project` because its `organization_id` is still `NULL` (i.e. the
+/// synthetic-organization backfill has not run for that row yet).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingOrganizationId {
+    pub project_id: Uuid,
+}
+
+impl std::fmt::Display for MissingOrganizationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "project {} has no organization_id; backfill required before exposing on the cloud surface",
+            self.project_id
+        )
+    }
+}
+
+impl std::error::Error for MissingOrganizationId {}
+
+impl TryFrom<ProjectRow> for wire::Project {
+    type Error = MissingOrganizationId;
+
+    fn try_from(value: ProjectRow) -> Result<Self, Self::Error> {
+        let organization_id = value.organization_id.ok_or(MissingOrganizationId {
+            project_id: value.id,
+        })?;
+        Ok(Self {
+            id: value.id,
+            organization_id,
+            name: value.name,
+            color: value.color,
+            sort_order: value.sort_order as i32,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        })
     }
 }
