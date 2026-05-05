@@ -147,6 +147,72 @@ impl ProjectRow {
         Ok(MutationResponse { data: row, txid })
     }
 
+    /// Creates a project and seeds the canonical six default statuses in one
+    /// transaction. The cloud contract requires that a project never be
+    /// observable in a statusless state; running both inserts under a single
+    /// transaction guarantees that — readers only see the project once its
+    /// statuses also exist, and a status-insert failure rolls the project
+    /// back. Order matches the cloud's seeder so the kanban board renders
+    /// identically.
+    pub async fn create_with_default_statuses(
+        pool: &SqlitePool,
+        data: &CreateProject,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        const DEFAULT_PROJECT_STATUSES: [(&str, &str, bool); 6] = [
+            ("Backlog", "#94a3b8", false),
+            ("Todo", "#3b82f6", false),
+            ("In Progress", "#f59e0b", false),
+            ("In Review", "#a855f7", false),
+            ("Done", "#22c55e", false),
+            ("Cancelled", "#ef4444", true),
+        ];
+
+        let mut tx = pool.begin().await?;
+
+        let row = sqlx::query_as!(
+            ProjectRow,
+            r#"INSERT INTO projects (id, organization_id, name, color)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id              as "id!: Uuid",
+                         organization_id as "organization_id: Uuid",
+                         name,
+                         color,
+                         sort_order,
+                         created_at      as "created_at!: DateTime<Utc>",
+                         updated_at      as "updated_at!: DateTime<Utc>""#,
+            data.id,
+            data.organization_id,
+            data.name,
+            data.color,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        for (idx, (name, color, hidden)) in DEFAULT_PROJECT_STATUSES.iter().enumerate() {
+            let status_id = Uuid::new_v4();
+            let sort_order = idx as i64;
+            let name_str = (*name).to_string();
+            let color_str = (*color).to_string();
+            let hidden_v = *hidden;
+            sqlx::query!(
+                r#"INSERT INTO project_statuses (id, project_id, name, color, sort_order, hidden)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
+                status_id,
+                row.id,
+                name_str,
+                color_str,
+                sort_order,
+                hidden_v,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,

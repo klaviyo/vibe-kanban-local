@@ -15,8 +15,11 @@ pub mod execution_processes;
 pub mod filesystem;
 pub mod frontend;
 pub mod health;
+pub mod oauth;
+pub mod organizations;
 pub mod preview;
 pub mod releases;
+pub mod remote;
 pub mod repo;
 pub mod scratch;
 pub mod search;
@@ -33,6 +36,8 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(workspaces::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(tags::router(&deployment))
+        .merge(oauth::router())
+        .merge(organizations::router())
         .merge(filesystem::router())
         .merge(repo::router())
         .merge(events::router(&deployment))
@@ -43,6 +48,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(releases::router())
         .merge(sessions::router(&deployment))
         .merge(terminal::router())
+        .nest("/remote", remote::router())
         .nest("/attachments", attachments::routes())
         .layer(ValidateRequestHeaderLayer::custom(
             middleware::validate_origin,

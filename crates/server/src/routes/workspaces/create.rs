@@ -67,7 +67,7 @@ pub async fn create_and_start_workspace(
     let CreateAndStartWorkspaceRequest {
         name,
         repos,
-        linked_issue: _,
+        linked_issue: _linked_issue,
         executor_config,
         prompt,
         attachment_ids,
@@ -100,6 +100,10 @@ pub async fn create_and_start_workspace(
     if let Some(ids) = &attachment_ids {
         managed_workspace.associate_attachments(ids).await?;
     }
+
+    // Local mode: there is no cloud blob store to import issue attachments from.
+    // Issue files and workspace files share the same `File` table — callers
+    // attach them directly via `attachment_ids` on the request.
 
     let workspace = managed_workspace.workspace.clone();
     tracing::info!("Created workspace {}", workspace.id);

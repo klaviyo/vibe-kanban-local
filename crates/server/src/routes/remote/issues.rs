@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueRequest, DeleteResponse, Issue, ListIssuesQuery, ListIssuesResponse,
-    MutationResponse, SearchIssuesRequest, UpdateIssueRequest,
+    self as wire, CreateIssueRequest, DeleteResponse, Issue, IssueSortField, ListIssuesQuery,
+    ListIssuesResponse, MutationResponse, SearchIssuesRequest, SortDirection, UpdateIssueRequest,
 };
 use axum::{
     Router,
@@ -8,10 +8,15 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
+use chrono::{DateTime, Utc};
+use db::models::issue::{Issue as IssueRow, IssuePriority};
+use deployment::Deployment;
+use serde_json::Value;
+use sqlx::SqlitePool;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 /// Maximum request body size accepted by `/api/remote/issues/*` PATCH/POST handlers.
 ///
@@ -35,17 +40,24 @@ async fn list_issues(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListIssuesQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssuesResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.list_issues(query.project_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let issues = IssueRow::find_by_project(pool, query.project_id).await?;
+    let total = issues.len();
+    let issues: Vec<Issue> = issues.into_iter().map(Issue::from).collect();
+    Ok(ResponseJson(ApiResponse::success(ListIssuesResponse {
+        issues,
+        total_count: total,
+        limit: total,
+        offset: 0,
+    })))
 }
 
 async fn search_issues(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<SearchIssuesRequest>,
 ) -> Result<ResponseJson<ApiResponse<ListIssuesResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.search_issues(&request).await?;
+    let pool = &deployment.db().pool;
+    let response = run_search(pool, &request).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
@@ -53,18 +65,31 @@ async fn get_issue(
     State(deployment): State<DeploymentImpl>,
     Path(issue_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<Issue>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.get_issue(issue_id).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let issue = IssueRow::find_by_id(pool, issue_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Issue not found".to_string()))?;
+    Ok(ResponseJson(ApiResponse::success(Issue::from(issue))))
 }
 
 async fn create_issue(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateIssueRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Issue>>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.create_issue(&request).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let id = request.id.unwrap_or_else(Uuid::new_v4);
+    let user = synthetic::local_user(&deployment).await?;
+
+    // Cloud contract: `simple_id` is org-scoped via `organizations.issue_prefix`
+    // + `organizations.issue_counter`, atomically incremented in the same
+    // transaction as the insert. The model handles the lookup, increment, and
+    // insert so a concurrent second project in the same org cannot emit a
+    // duplicate `issue_number` or the wrong prefix.
+    let response = IssueRow::create_with_org_short_id(pool, id, &request, Some(user.id)).await?;
+    Ok(ResponseJson(ApiResponse::success(MutationResponse {
+        data: response.data.into(),
+        txid: response.txid,
+    })))
 }
 
 async fn update_issue(
@@ -72,19 +97,156 @@ async fn update_issue(
     Path(issue_id): Path<Uuid>,
     Json(request): Json<UpdateIssueRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<Issue>>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.update_issue(issue_id, &request).await?;
-    Ok(ResponseJson(ApiResponse::success(response)))
+    let pool = &deployment.db().pool;
+    let response = IssueRow::update(pool, issue_id, &request).await?;
+    Ok(ResponseJson(ApiResponse::success(MutationResponse {
+        data: response.data.into(),
+        txid: response.txid,
+    })))
 }
 
 async fn delete_issue(
     State(deployment): State<DeploymentImpl>,
     Path(issue_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
-    let client = deployment.remote_client()?;
-    let response = client.delete_issue(issue_id).await?;
+    let pool = &deployment.db().pool;
+    let response = IssueRow::delete(pool, issue_id).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
 }
+
+/// Inline replacement for the cloud's search endpoint. Filters are applied
+/// after fetching the project's issue rows; this is acceptable for local mode
+/// (single-user, low cardinality) and keeps the implementation free of dynamic
+/// SQL builders.
+async fn run_search(
+    pool: &SqlitePool,
+    request: &SearchIssuesRequest,
+) -> Result<ListIssuesResponse, sqlx::Error> {
+    let mut issues = IssueRow::find_by_project(pool, request.project_id).await?;
+
+    if let Some(status_id) = request.status_id {
+        issues.retain(|i| i.status_id == status_id);
+    }
+    if let Some(status_ids) = &request.status_ids
+        && !status_ids.is_empty()
+    {
+        issues.retain(|i| status_ids.contains(&i.status_id));
+    }
+    if let Some(priority) = request.priority {
+        let p = IssuePriority::from(priority);
+        issues.retain(|i| i.priority == Some(p));
+    }
+    if let Some(parent_issue_id) = request.parent_issue_id {
+        issues.retain(|i| i.parent_issue_id == Some(parent_issue_id));
+    }
+    if let Some(simple_id) = &request.simple_id {
+        issues.retain(|i| i.simple_id.eq_ignore_ascii_case(simple_id));
+    }
+    if let Some(search) = &request.search {
+        let needle = search.to_lowercase();
+        issues.retain(|i| {
+            i.title.to_lowercase().contains(&needle)
+                || i.description
+                    .as_ref()
+                    .map(|d| d.to_lowercase().contains(&needle))
+                    .unwrap_or(false)
+        });
+    }
+    if let Some(assignee_user_id) = request.assignee_user_id {
+        let mut filtered: Vec<IssueRow> = Vec::with_capacity(issues.len());
+        for issue in issues {
+            let assignees =
+                db::models::issue_assignee::IssueAssignee::find_by_issue(pool, issue.id).await?;
+            if assignees.iter().any(|a| a.user_id == assignee_user_id) {
+                filtered.push(issue);
+            }
+        }
+        issues = filtered;
+    }
+    if let Some(tag_id) = request.tag_id {
+        let mut filtered: Vec<IssueRow> = Vec::with_capacity(issues.len());
+        for issue in issues {
+            let tags = db::models::issue_tag::IssueTag::find_by_issue(pool, issue.id).await?;
+            if tags.iter().any(|t| t.tag_id == tag_id) {
+                filtered.push(issue);
+            }
+        }
+        issues = filtered;
+    }
+    if let Some(tag_ids) = &request.tag_ids
+        && !tag_ids.is_empty()
+    {
+        let mut filtered: Vec<IssueRow> = Vec::with_capacity(issues.len());
+        for issue in issues {
+            let tags = db::models::issue_tag::IssueTag::find_by_issue(pool, issue.id).await?;
+            if tags.iter().any(|t| tag_ids.contains(&t.tag_id)) {
+                filtered.push(issue);
+            }
+        }
+        issues = filtered;
+    }
+
+    sort_issues(
+        &mut issues,
+        request.sort_field.unwrap_or(IssueSortField::SortOrder),
+        request.sort_direction.unwrap_or(SortDirection::Asc),
+    );
+
+    let total_count = issues.len();
+    let offset = request.offset.unwrap_or(0).max(0) as usize;
+    let limit = request
+        .limit
+        .map(|l| l.max(0) as usize)
+        .unwrap_or(total_count);
+
+    let page: Vec<Issue> = issues
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(Issue::from)
+        .collect();
+
+    Ok(ListIssuesResponse {
+        issues: page,
+        total_count,
+        limit,
+        offset,
+    })
+}
+
+fn sort_issues(issues: &mut [IssueRow], field: IssueSortField, dir: SortDirection) {
+    let cmp_priority = |p: Option<IssuePriority>| -> u8 {
+        match p {
+            Some(IssuePriority::Urgent) => 0,
+            Some(IssuePriority::High) => 1,
+            Some(IssuePriority::Medium) => 2,
+            Some(IssuePriority::Low) => 3,
+            None => 4,
+        }
+    };
+
+    issues.sort_by(|a, b| {
+        let ord = match field {
+            IssueSortField::SortOrder => a
+                .sort_order
+                .partial_cmp(&b.sort_order)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            IssueSortField::Priority => cmp_priority(a.priority).cmp(&cmp_priority(b.priority)),
+            IssueSortField::CreatedAt => a.created_at.cmp(&b.created_at),
+            IssueSortField::UpdatedAt => a.updated_at.cmp(&b.updated_at),
+            IssueSortField::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        };
+        match dir {
+            SortDirection::Asc => ord,
+            SortDirection::Desc => ord.reverse(),
+        }
+    });
+}
+
+// Suppress unused-import warnings when only some of the wire types are referenced
+// through trait conversions.
+#[allow(dead_code)]
+fn _wire_assert(_: wire::Issue, _: DateTime<Utc>, _: Value) {}
 
 #[cfg(test)]
 mod tests {

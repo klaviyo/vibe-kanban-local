@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT is_personal as \"is_personal!: bool\"\n               FROM organizations\n               WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "is_personal!: bool",
+        "ordinal": 0,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4081a8c4e5044328caf34ce19204b21e8f27d09a2dbfab30a6851202af006ddf"
+}

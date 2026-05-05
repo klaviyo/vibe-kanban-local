@@ -254,6 +254,7 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
         pr_url: pr.url,
         pr_number: Number(pr.number),
         base_branch: pr.base_branch,
+        issue_id: issueId,
       });
       modal.hide();
     } catch (err) {

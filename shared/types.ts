@@ -296,6 +296,10 @@ export type PrError = { "type": "cli_not_installed", provider: ProviderKind, } |
 
 export type RunScriptError = { "type": "no_script_configured" } | { "type": "process_already_running" };
 
+export type AssociateWorkspaceAttachmentsRequest = { attachment_ids: Array<string>, };
+
+export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, issue_id: string, };
+
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
 
 export type AttachExistingPrRequest = { repo_id: string, };
@@ -760,8 +764,6 @@ export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in
 export type TokenResponse = { access_token: string, expires_at: string | null, };
 
 export type CurrentUserResponse = { user_id: string, };
-
-export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, };
 
 export type RelayPairedClient = { client_id: string, client_name: string, client_browser: string, client_os: string, client_device: string, };
 

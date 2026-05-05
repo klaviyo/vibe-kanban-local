@@ -276,6 +276,108 @@ impl Issue {
         }
     }
 
+    /// Create an issue with an org-scoped `simple_id`, mirroring the cloud
+    /// contract from `20260313000000_fix-short-id-counter.sql`: the owning
+    /// organization's `issue_counter` is the source of truth, so issues stay
+    /// uniquely numbered across every project in the org. The transaction
+    /// resolves the project's organization, atomically increments
+    /// `organizations.issue_counter`, derives `simple_id` from
+    /// `issue_prefix`, and inserts the issue — all so a concurrent second
+    /// project in the same org can't emit a duplicate `issue_number`.
+    pub async fn create_with_org_short_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        request: &CreateIssueRequest,
+        creator_user_id: Option<Uuid>,
+    ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+
+        let project = sqlx::query!(
+            r#"SELECT organization_id as "organization_id: Uuid"
+               FROM projects WHERE id = $1"#,
+            request.project_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+
+        let organization_id = project
+            .organization_id
+            .ok_or_else(|| sqlx::Error::Protocol("project missing organization_id".into()))?;
+
+        let counter_row = sqlx::query!(
+            r#"UPDATE organizations
+               SET issue_counter = issue_counter + 1,
+                   updated_at    = datetime('now', 'subsec')
+               WHERE id = $1
+               RETURNING issue_counter, issue_prefix"#,
+            organization_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+
+        let issue_number = counter_row.issue_counter;
+        let simple_id = format!("{}-{}", counter_row.issue_prefix, issue_number);
+
+        let priority: Option<IssuePriority> = request.priority.map(IssuePriority::from);
+        let extension_metadata = sqlx::types::Json(request.extension_metadata.clone());
+
+        let row = sqlx::query_as!(
+            Issue,
+            r#"INSERT INTO issues (
+                   id, project_id, issue_number, simple_id, status_id, title,
+                   description, priority, start_date, target_date, completed_at,
+                   sort_order, parent_issue_id, parent_issue_sort_order,
+                   creator_user_id, extension_metadata
+               )
+               VALUES (
+                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                   $12, $13, $14, $15, $16
+               )
+               RETURNING id                       as "id!: Uuid",
+                         project_id               as "project_id!: Uuid",
+                         issue_number,
+                         simple_id,
+                         status_id                as "status_id!: Uuid",
+                         title,
+                         description,
+                         priority                 as "priority: IssuePriority",
+                         start_date               as "start_date: DateTime<Utc>",
+                         target_date              as "target_date: DateTime<Utc>",
+                         completed_at             as "completed_at: DateTime<Utc>",
+                         sort_order               as "sort_order!: f64",
+                         parent_issue_id          as "parent_issue_id: Uuid",
+                         parent_issue_sort_order  as "parent_issue_sort_order: f64",
+                         creator_user_id          as "creator_user_id: Uuid",
+                         extension_metadata       as "extension_metadata!: sqlx::types::Json<Value>",
+                         created_at               as "created_at!: DateTime<Utc>",
+                         updated_at               as "updated_at!: DateTime<Utc>""#,
+            id,
+            request.project_id,
+            issue_number,
+            simple_id,
+            request.status_id,
+            request.title,
+            request.description,
+            priority,
+            request.start_date,
+            request.target_date,
+            request.completed_at,
+            request.sort_order,
+            request.parent_issue_id,
+            request.parent_issue_sort_order,
+            creator_user_id,
+            extension_metadata,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
