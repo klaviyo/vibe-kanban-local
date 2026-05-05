@@ -7,6 +7,7 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod identity_seeder;
 pub mod models;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {

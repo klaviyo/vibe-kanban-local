@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO projects (id, organization_id, name, color)\n               VALUES ($1, NULL, 'Pre-cutover', '#abc')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "565bf04178c5e5a348dec060d9d55851ea9ae564c727727510f9aaf747682687"
+}

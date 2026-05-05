@@ -112,6 +112,16 @@ impl Deployment for LocalDeployment {
             DBService::new_with_after_connect(hook).await?
         };
 
+        // Seed the synthetic identity (organization, user, member, Initial
+        // Project, project_statuses, marker) before any service binds to it.
+        // Idempotent on subsequent launches; logs a structured warning on
+        // host rename and preserves identity rows.
+        db::identity_seeder::IdentitySeeder::new(&db.pool)
+            .map_err(|e| DeploymentError::Other(anyhow::anyhow!("identity seeder init: {}", e)))?
+            .run()
+            .await
+            .map_err(|e| DeploymentError::Other(anyhow::anyhow!("identity seeder run: {}", e)))?;
+
         let file = FileService::new(db.clone().pool)?;
         {
             let file_service = file.clone();
