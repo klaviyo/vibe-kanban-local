@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
-use api_types::LoginStatus;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, State, ws::Message},
+    extract::{
+        Path, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http,
     response::{IntoResponse, Json as ResponseJson, Response},
     routing::{get, put},
@@ -26,19 +28,13 @@ use services::services::{
         save_config_to_file,
     },
     container::ContainerService,
-    remote_client::RemoteClientError,
 };
 use tokio::fs;
 use ts_rs::TS;
 use utils::{assets::config_path, log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{
-    DeploymentImpl,
-    error::ApiError,
-    middleware::signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
-    runtime::relay_registration,
-};
+use crate::{DeploymentImpl, error::ApiError};
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -90,74 +86,27 @@ pub struct UserSystemInfo {
     pub version: String,
     pub config: Config,
     pub machine_id: String,
-    pub login_status: LoginStatus,
-    pub remote_auth_degraded: Option<String>,
     #[serde(flatten)]
     pub profiles: ExecutorConfigs,
     pub environment: Environment,
     /// Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
     pub capabilities: HashMap<String, Vec<BaseAgentCapability>>,
-    pub shared_api_base: Option<String>,
     pub preview_proxy_port: Option<u16>,
+    pub login_status: Option<api_types::LoginStatus>,
+    pub remote_auth_degraded: Option<String>,
+    pub shared_api_base: Option<String>,
 }
 
-// TODO: update frontend, BE schema has changed, this replaces GET /config and /config/constants
 #[axum::debug_handler]
 async fn get_user_system_info(
     State(deployment): State<DeploymentImpl>,
 ) -> ResponseJson<ApiResponse<UserSystemInfo>> {
     let config = deployment.config().read().await.clone();
-    let login_status = match tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        deployment.get_login_status(),
-    )
-    .await
-    {
-        Ok(status) => status,
-        Err(_) => {
-            tracing::warn!("timed out determining login status for /api/info");
-
-            let auth_context = deployment.auth_context();
-            let cached_profile = auth_context.cached_profile().await;
-
-            match auth_context.get_credentials().await {
-                Some(_) => {
-                    if auth_context.remote_auth_degraded_slug().await.is_none() {
-                        auth_context
-                            .set_remote_auth_degraded_slug(
-                                RemoteClientError::generic_degraded_slug(),
-                            )
-                            .await;
-                    }
-
-                    deployment
-                        .track_if_analytics_allowed(
-                            "login_status_timeout",
-                            serde_json::json!({
-                                "has_cached_profile": cached_profile.is_some(),
-                            }),
-                        )
-                        .await;
-
-                    LoginStatus::LoggedIn {
-                        profile: cached_profile,
-                    }
-                }
-                None => {
-                    auth_context.clear_profile().await;
-                    auth_context.clear_remote_auth_degraded_slug().await;
-                    LoginStatus::LoggedOut
-                }
-            }
-        }
-    };
 
     let user_system_info = UserSystemInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         config,
         machine_id: deployment.user_id().to_string(),
-        login_status,
-        remote_auth_degraded: deployment.auth_context().remote_auth_degraded_slug().await,
         profiles: ExecutorConfigs::get_cached(),
         environment: Environment::new(),
         capabilities: {
@@ -170,8 +119,10 @@ async fn get_user_system_info(
             }
             caps
         },
-        shared_api_base: deployment.remote_info().get_api_base(),
         preview_proxy_port: deployment.client_info().get_preview_proxy_port(),
+        login_status: None,
+        remote_auth_degraded: None,
+        shared_api_base: None,
     };
 
     ResponseJson(ApiResponse::success(user_system_info))
@@ -190,71 +141,15 @@ async fn update_config(
         ));
     }
 
-    // Get old config state before updating
-    let old_config = deployment.config().read().await.clone();
-
     match save_config_to_file(&new_config, &config_path).await {
         Ok(_) => {
             let mut config = deployment.config().write().await;
             *config = new_config.clone();
             drop(config);
 
-            // Track config events when fields transition from false → true and run side effects
-            handle_config_events(&deployment, &old_config, &new_config).await;
-
             ResponseJson(ApiResponse::success(new_config))
         }
         Err(e) => ResponseJson(ApiResponse::error(&format!("Failed to save config: {}", e))),
-    }
-}
-
-/// Track config events when fields transition from false → true
-async fn track_config_events(deployment: &DeploymentImpl, old: &Config, new: &Config) {
-    let events = [
-        (
-            !old.disclaimer_acknowledged && new.disclaimer_acknowledged,
-            "onboarding_disclaimer_accepted",
-            serde_json::json!({}),
-        ),
-        (
-            !old.onboarding_acknowledged && new.onboarding_acknowledged,
-            "onboarding_completed",
-            serde_json::json!({
-                "profile": new.executor_profile,
-                "editor": new.editor
-            }),
-        ),
-        (
-            !old.analytics_enabled && new.analytics_enabled,
-            "analytics_session_start",
-            serde_json::json!({}),
-        ),
-    ];
-
-    for (should_track, event_name, properties) in events {
-        if should_track {
-            deployment
-                .track_if_analytics_allowed(event_name, properties)
-                .await;
-        }
-    }
-}
-
-async fn handle_config_events(deployment: &DeploymentImpl, old: &Config, new: &Config) {
-    track_config_events(deployment, old, new).await;
-
-    let old_host_nickname = relay_registration::clean_host_nickname(old, deployment.user_id());
-    let new_host_nickname = relay_registration::clean_host_nickname(new, deployment.user_id());
-
-    match (old.relay_enabled, new.relay_enabled) {
-        (false, true) => relay_registration::spawn_relay(deployment).await,
-        (true, false) => relay_registration::stop_relay(deployment).await,
-        (true, true) => {
-            if old_host_nickname != new_host_nickname {
-                relay_registration::spawn_relay(deployment).await;
-            }
-        }
-        (false, false) => (),
     }
 }
 
@@ -278,7 +173,6 @@ pub struct McpServerQuery {
 
 #[derive(TS, Debug, Serialize, Deserialize)]
 pub struct GetMcpServerResponse {
-    // servers: HashMap<String, Value>,
     mcp_config: McpConfig,
     config_path: String,
 }
@@ -304,7 +198,6 @@ async fn get_mcp_servers(
         )));
     }
 
-    // Resolve supplied config path or agent default
     let config_path = match coding_agent.default_mcp_config_path() {
         Some(path) => path,
         None => {
@@ -342,7 +235,6 @@ async fn update_mcp_servers(
         )));
     }
 
-    // Resolve supplied config path or agent default
     let config_path = match agent.default_mcp_config_path() {
         Some(path) => path.to_path_buf(),
         None => {
@@ -367,20 +259,15 @@ async fn update_mcp_servers_in_config(
     mcpc: &McpConfig,
     new_servers: HashMap<String, Value>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Ensure parent directory exists
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).await?;
     }
-    // Read existing config (JSON or TOML depending on agent)
     let mut config = read_agent_config(config_path, mcpc).await?;
 
-    // Get the current server count for comparison
     let old_servers = get_mcp_servers_from_config_path(&config, &mcpc.servers_path).len();
 
-    // Set the MCP servers using the correct attribute path
     set_mcp_servers_in_config_path(&mut config, &mcpc.servers_path, &new_servers)?;
 
-    // Write the updated config back to file (JSON or TOML depending on agent)
     write_agent_config(config_path, mcpc, &config).await?;
 
     let new_count = new_servers.len();
@@ -397,7 +284,6 @@ async fn update_mcp_servers_in_config(
     Ok(message)
 }
 
-/// Helper function to get MCP servers from config using a path
 fn get_mcp_servers_from_config_path(raw_config: &Value, path: &[String]) -> HashMap<String, Value> {
     let mut current = raw_config;
     for part in path {
@@ -406,7 +292,6 @@ fn get_mcp_servers_from_config_path(raw_config: &Value, path: &[String]) -> Hash
             None => return HashMap::new(),
         };
     }
-    // Extract the servers object
     match current.as_object() {
         Some(servers) => servers
             .iter()
@@ -416,19 +301,16 @@ fn get_mcp_servers_from_config_path(raw_config: &Value, path: &[String]) -> Hash
     }
 }
 
-/// Helper function to set MCP servers in config using a path
 fn set_mcp_servers_in_config_path(
     raw_config: &mut Value,
     path: &[String],
     servers: &HashMap<String, Value>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Ensure config is an object
     if !raw_config.is_object() {
         *raw_config = serde_json::json!({});
     }
 
     let mut current = raw_config;
-    // Navigate/create the nested structure (all parts except the last)
     for part in &path[..path.len() - 1] {
         if current.get(part).is_none() {
             current
@@ -442,7 +324,6 @@ fn set_mcp_servers_in_config_path(
         }
     }
 
-    // Set the final attribute
     let final_attr = path.last().unwrap();
     current
         .as_object_mut()
@@ -463,7 +344,6 @@ async fn get_profiles(
 ) -> ResponseJson<ApiResponse<ProfilesContent>> {
     let profiles_path = utils::assets::profiles_path();
 
-    // Use cached data to ensure consistency with runtime and PUT updates
     let profiles = ExecutorConfigs::get_cached();
 
     let content = serde_json::to_string_pretty(&profiles).unwrap_or_else(|e| {
@@ -482,28 +362,23 @@ async fn update_profiles(
     State(_deployment): State<DeploymentImpl>,
     body: String,
 ) -> ResponseJson<ApiResponse<String>> {
-    // Try to parse as ExecutorProfileConfigs format
     match serde_json::from_str::<ExecutorConfigs>(&body) {
-        Ok(executor_profiles) => {
-            // Save the profiles to file
-            match executor_profiles.save_overrides() {
-                Ok(_) => {
-                    tracing::info!("Executor profiles saved successfully");
-                    // Reload the cached profiles
-                    ExecutorConfigs::reload();
-                    ResponseJson(ApiResponse::success(
-                        "Executor profiles updated successfully".to_string(),
-                    ))
-                }
-                Err(e) => {
-                    tracing::error!("Failed to save executor profiles: {}", e);
-                    ResponseJson(ApiResponse::error(&format!(
-                        "Failed to save executor profiles: {}",
-                        e
-                    )))
-                }
+        Ok(executor_profiles) => match executor_profiles.save_overrides() {
+            Ok(_) => {
+                tracing::info!("Executor profiles saved successfully");
+                ExecutorConfigs::reload();
+                ResponseJson(ApiResponse::success(
+                    "Executor profiles updated successfully".to_string(),
+                ))
             }
-        }
+            Err(e) => {
+                tracing::error!("Failed to save executor profiles: {}", e);
+                ResponseJson(ApiResponse::error(&format!(
+                    "Failed to save executor profiles: {}",
+                    e
+                )))
+            }
+        },
         Err(e) => ResponseJson(ApiResponse::error(&format!(
             "Invalid executor profiles format: {}",
             e
@@ -525,14 +400,7 @@ async fn check_editor_availability(
     State(_deployment): State<DeploymentImpl>,
     Query(query): Query<CheckEditorAvailabilityQuery>,
 ) -> ResponseJson<ApiResponse<CheckEditorAvailabilityResponse>> {
-    // Construct a minimal EditorConfig for checking
-    let editor_config = EditorConfig::new(
-        query.editor_type,
-        None,  // custom_command
-        None,  // remote_ssh_host
-        None,  // remote_ssh_user
-        false, // auto_install_extension
-    );
+    let editor_config = EditorConfig::new(query.editor_type, None, None, None, false);
 
     let available = editor_config.check_availability().await;
     ResponseJson(ApiResponse::success(CheckEditorAvailabilityResponse {
@@ -578,10 +446,7 @@ async fn get_agent_preset_options(
 
     let options = match profiles.get_coding_agent(&profile_id) {
         Some(agent) => agent.get_preset_options(),
-        None => {
-            // Return a default config if not found
-            executors::profile::ExecutorConfig::new(query.executor)
-        }
+        None => executors::profile::ExecutorConfig::new(query.executor),
     };
 
     ResponseJson(ApiResponse::success(options))
@@ -599,7 +464,7 @@ pub struct ExecutorDiscoveredOptionsStreamQuery {
 }
 
 pub async fn stream_executor_discovered_options_ws(
-    ws: SignedWsUpgrade,
+    ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ExecutorDiscoveredOptionsStreamQuery>,
 ) -> impl IntoResponse {
@@ -611,7 +476,7 @@ pub async fn stream_executor_discovered_options_ws(
 }
 
 async fn handle_executor_discovered_options_ws(
-    mut socket: MaybeSignedWebSocket,
+    mut socket: WebSocket,
     deployment: DeploymentImpl,
     query: ExecutorDiscoveredOptionsStreamQuery,
 ) -> anyhow::Result<()> {
@@ -652,10 +517,10 @@ async fn handle_executor_discovered_options_ws(
                     }
                     inbound = socket.recv() => {
                         match inbound {
-                            Ok(Some(Message::Close(_))) => break,
-                            Ok(Some(_)) => {}
-                            Ok(None) => break,
-                            Err(_) => break,
+                            Some(Ok(Message::Close(_))) => break,
+                            Some(Ok(_)) => {}
+                            None => break,
+                            Some(Err(_)) => break,
                         }
                     }
                 }
