@@ -43,7 +43,6 @@ import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { DeleteRemoteProjectDialog } from '@/shared/dialogs/org/DeleteRemoteProjectDialog';
 import { useShape } from '@/shared/integrations/electric/hooks';
-import { bulkUpdateProjectStatuses } from '@/shared/lib/remoteApi';
 
 import {
   PROJECTS_SHAPE,
@@ -809,13 +808,15 @@ export function RemoteProjectsSettingsSection({
       bulkUpdates.push({ id: local.id, changes });
     }
 
-    if (bulkUpdates.length > 1) {
-      await bulkUpdateProjectStatuses(bulkUpdates);
-    } else if (bulkUpdates.length === 1) {
-      const result = updateProjectStatus(
-        bulkUpdates[0].id,
-        bulkUpdates[0].changes
-      );
+    // Route every update through the hook's updateProjectStatus so each one
+    // hits the hook's onSettled → queryClient.invalidateQueries pipeline.
+    // The previous bulkUpdateProjectStatuses path called fanOutPatch directly,
+    // which bypassed React Query — leaving the cache stale. Combined with the
+    // localStatuses-reset effect that fires when hasStatusChanges flips back
+    // to false post-save, the stale cache caused user-saved colors to visibly
+    // revert in the modal even though the backend had persisted them.
+    for (const { id, changes } of bulkUpdates) {
+      const result = updateProjectStatus(id, changes);
       mutationPromises.push(result.persisted);
     }
 

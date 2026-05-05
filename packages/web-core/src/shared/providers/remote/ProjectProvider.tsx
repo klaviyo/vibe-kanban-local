@@ -37,10 +37,17 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   const params = useMemo(() => ({ project_id: projectId }), [projectId]);
   const enabled = Boolean(projectId);
 
+  // Background poll cadence for shapes that change out-of-band (MCP, daemon,
+  // another tab). Without polling, useShape only refreshes on local mutation
+  // invalidation or page reload — so e.g. a column move via MCP doesn't show
+  // up in the UI until the user refreshes. 5s is a reasonable kanban-feel.
+  const BACKGROUND_POLL_MS = 5000;
+
   // Shape subscriptions (with mutations where needed)
   const issuesResult = useShape(PROJECT_ISSUES_SHAPE, params, {
     enabled,
     mutation: ISSUE_MUTATION,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
   const statusesResult = useShape(PROJECT_PROJECT_STATUSES_SHAPE, params, {
     enabled,
@@ -53,30 +60,47 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   const issueAssigneesResult = useShape(PROJECT_ISSUE_ASSIGNEES_SHAPE, params, {
     enabled,
     mutation: ISSUE_ASSIGNEE_MUTATION,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
   const issueFollowersResult = useShape(PROJECT_ISSUE_FOLLOWERS_SHAPE, params, {
     enabled,
     mutation: ISSUE_FOLLOWER_MUTATION,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
   const issueTagsResult = useShape(PROJECT_ISSUE_TAGS_SHAPE, params, {
     enabled,
     mutation: ISSUE_TAG_MUTATION,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
   const issueRelationshipsResult = useShape(
     PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
     params,
-    { enabled, mutation: ISSUE_RELATIONSHIP_MUTATION }
+    {
+      enabled,
+      mutation: ISSUE_RELATIONSHIP_MUTATION,
+      refetchIntervalMs: BACKGROUND_POLL_MS,
+    }
   );
   const pullRequestsResult = useShape(PROJECT_PULL_REQUESTS_SHAPE, params, {
     enabled,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
   const pullRequestIssuesResult = useShape(
     PROJECT_PULL_REQUEST_ISSUES_SHAPE,
     params,
-    { enabled, mutation: PULL_REQUEST_ISSUE_MUTATION }
+    {
+      enabled,
+      mutation: PULL_REQUEST_ISSUE_MUTATION,
+      refetchIntervalMs: BACKGROUND_POLL_MS,
+    }
   );
+  // Issue cards display linked workspaces from this shape. The sidebar's
+  // useWorkspaces.ts has its own WebSocket stream, but issue-card consumers
+  // go through useShape, so we need a poll to surface MCP/daemon-created
+  // workspaces without a page refresh.
   const workspacesResult = useShape(PROJECT_WORKSPACES_SHAPE, params, {
     enabled,
+    refetchIntervalMs: BACKGROUND_POLL_MS,
   });
 
   // Board readiness depends on core kanban data only.

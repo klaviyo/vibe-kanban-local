@@ -36,6 +36,41 @@ use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
+/// Resolve the version string surfaced to the frontend.
+///
+/// vk-conductor ships pre-built binaries via GitHub Releases on
+/// klaviyo/ai-assist. init.sh writes a `.installed_tag` sidecar file next to
+/// the binary on download (e.g. `vk-conductor-bin-2026.05.05`). When present,
+/// we surface the date portion (`2026.05.05`) rather than the upstream Cargo
+/// version, since that's what's actually meaningful to a user trying to
+/// figure out which build they're running.
+///
+/// Falls back to CARGO_PKG_VERSION when `.installed_tag` is absent — e.g.
+/// running `cargo run` in development, or before init.sh has materialized
+/// the binaries from a release.
+fn display_version() -> String {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            if let Ok(exe) = std::env::current_exe()
+                && let Some(dir) = exe.parent()
+                && let Ok(contents) = std::fs::read_to_string(dir.join(".installed_tag"))
+            {
+                let tag = contents.trim();
+                // Tag format: "vk-conductor-bin-YYYY.MM.DD" → just the date.
+                if let Some(date) = tag.strip_prefix("vk-conductor-bin-") {
+                    return date.to_string();
+                }
+                if !tag.is_empty() {
+                    return tag.to_string();
+                }
+            }
+            env!("CARGO_PKG_VERSION").to_string()
+        })
+        .clone()
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/info", get(get_user_system_info))
@@ -114,7 +149,7 @@ async fn get_user_system_info(
     });
 
     let user_system_info = UserSystemInfo {
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: display_version(),
         config,
         machine_id: deployment.user_id().to_string(),
         profiles: ExecutorConfigs::get_cached(),

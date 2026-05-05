@@ -58,6 +58,14 @@ pub async fn compute_diff_stats(
         let worktree_path = PathBuf::from(container_ref).join(&repo_with_branch.repo.name);
         let repo_path = repo_with_branch.repo.path.clone();
 
+        // Skip stale worktrees whose on-disk path no longer exists. v2-imported
+        // workspaces routinely point at /var/folders/... paths that macOS has
+        // since cleaned up; running git2 against a missing dir wastes a
+        // spawn_blocking slot and stalls the per-page summaries call.
+        if !worktree_path.exists() {
+            continue;
+        }
+
         let base_commit_result = tokio::task::spawn_blocking({
             let git = git.clone();
             let repo_path = repo_path.clone();

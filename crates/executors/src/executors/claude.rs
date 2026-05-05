@@ -59,10 +59,13 @@ use crate::{
 const SUPPRESSED_STDERR_PATTERNS: &[&str] = &["[WARN] Fast mode requires the native binary"];
 
 fn base_command(claude_code_router: bool) -> &'static str {
+    // `--prefer-offline`: with a pinned version, npm's cache key is the
+    // exact tarball, so once it's local there's nothing the registry can
+    // tell us. Skips the per-spawn metadata revalidation HEAD request.
     if claude_code_router {
-        "npx -y @musistudio/claude-code-router@1.0.66 code"
+        "npx --prefer-offline -y @musistudio/claude-code-router@1.0.66 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.1.119"
+        "npx --prefer-offline -y @anthropic-ai/claude-code@2.1.119"
     }
 }
 

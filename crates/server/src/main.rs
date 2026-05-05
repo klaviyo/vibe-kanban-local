@@ -40,7 +40,7 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},tower_http=debug,codex_core=off",
+        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},workspace_manager={level},worktree_manager={level},tower_http=debug,codex_core=off",
         level = log_level
     );
     let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
@@ -128,8 +128,10 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let app_router = routes::router(deployment.clone());
 
-    // Production only: open browser
-    if !cfg!(debug_assertions) {
+    // Production only: open browser. Set VK_NO_BROWSER=1 to suppress —
+    // useful when restarting the server during dev/iteration so each restart
+    // does not spawn another tab and accumulate WebSocket reconnections.
+    if !cfg!(debug_assertions) && std::env::var("VK_NO_BROWSER").is_err() {
         tracing::info!("Opening browser...");
         let browser_port = actual_main_port;
         tokio::spawn(async move {
