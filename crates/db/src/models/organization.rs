@@ -9,6 +9,17 @@ use uuid::Uuid;
 
 use super::mutation_log;
 
+/// Default `issue_prefix` written for newly-created organizations on the local
+/// path. Matches the schema-level default in
+/// `migrations/20260502120000_create_organizations.sql`, but is written
+/// explicitly so that local databases that ran an older revision of that
+/// migration (which defaulted to `'ISS'`) still mint new orgs with the
+/// contracted prefix. Per the 2026-05-02 retraction, the schema-level default
+/// stays at `'ISS'` (revert of an earlier in-place edit on PR #5's migration);
+/// this constant is the contract-bearing source of truth for new local-side
+/// inserts.
+pub const DEFAULT_ISSUE_PREFIX: &str = "VK";
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Organization {
     pub id: Uuid,
@@ -86,8 +97,8 @@ impl Organization {
         let mut tx = pool.begin().await?;
         let row = sqlx::query_as!(
             Organization,
-            r#"INSERT INTO organizations (id, name, slug)
-               VALUES ($1, $2, $3)
+            r#"INSERT INTO organizations (id, name, slug, issue_prefix)
+               VALUES ($1, $2, $3, $4)
                RETURNING id          as "id!: Uuid",
                          name,
                          slug,
@@ -99,6 +110,7 @@ impl Organization {
             id,
             data.name,
             data.slug,
+            DEFAULT_ISSUE_PREFIX,
         )
         .fetch_one(&mut *tx)
         .await?;
