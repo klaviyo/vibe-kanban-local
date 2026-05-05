@@ -38,16 +38,18 @@ use crate::{DeploymentImpl, error::ApiError, runtime::synthetic};
 
 /// Resolve the version string surfaced to the frontend.
 ///
-/// vk-conductor ships pre-built binaries via GitHub Releases on
-/// klaviyo/ai-assist. init.sh writes a `.installed_tag` sidecar file next to
-/// the binary on download (e.g. `vk-conductor-bin-2026.05.05`). When present,
-/// we surface the date portion (`2026.05.05`) rather than the upstream Cargo
-/// version, since that's what's actually meaningful to a user trying to
-/// figure out which build they're running.
+/// When the binary was distributed as part of a release, a `.installed_tag`
+/// sidecar file lives next to the executable carrying the release identifier
+/// (typically a date, e.g. `2026.05.05`, optionally prefixed `v` per git
+/// tag convention). We surface that as the version. Tools that fetch the
+/// release from elsewhere are responsible for writing whatever they want
+/// users to see into `.installed_tag` — the format here is just "trimmed
+/// content, optionally with a leading `v` stripped" since the frontend
+/// re-prefixes `v` on display.
 ///
 /// Falls back to CARGO_PKG_VERSION when `.installed_tag` is absent — e.g.
-/// running `cargo run` in development, or before init.sh has materialized
-/// the binaries from a release.
+/// running `cargo run` in development, or before any release-download
+/// script has materialized the binary.
 fn display_version() -> String {
     use std::sync::OnceLock;
     static CACHED: OnceLock<String> = OnceLock::new();
@@ -58,12 +60,9 @@ fn display_version() -> String {
                 && let Ok(contents) = std::fs::read_to_string(dir.join(".installed_tag"))
             {
                 let tag = contents.trim();
-                // Tag format: "vk-conductor-bin-YYYY.MM.DD" → just the date.
-                if let Some(date) = tag.strip_prefix("vk-conductor-bin-") {
-                    return date.to_string();
-                }
-                if !tag.is_empty() {
-                    return tag.to_string();
+                let cleaned = tag.strip_prefix('v').unwrap_or(tag);
+                if !cleaned.is_empty() {
+                    return cleaned.to_string();
                 }
             }
             env!("CARGO_PKG_VERSION").to_string()
