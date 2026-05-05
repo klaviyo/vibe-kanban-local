@@ -1,72 +1,76 @@
 <p align="center">
-  <a href="https://vibekanban.com">
-    <picture>
-      <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
-    </picture>
-  </a>
+  <picture>
+    <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
+    <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
+    <img src="packages/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
+  </picture>
 </p>
 
-<p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
-<p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban?style=flat-square" /></a>
-  <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
-  <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-</p>
-
-<h1 align="center">
-  <strong>Vibe Kanban is sunsetting.</strong>
-  <a href="https://www.vibekanban.com/blog/shutdown">Read the announcement.</a>
-</h1>
+<p align="center">A local-only fork of <a href="https://github.com/BloopAI/vibe-kanban">BloopAI/vibe-kanban</a>, kept alive past the upstream sunset.</p>
 
 ![](packages/public/vibe-kanban-screenshot-overview.png)
 
-## Overview
+## What this fork is
 
-In a world where software engineers spend most of their time planning and reviewing coding agents, the most impactful way to ship more is to get faster at planning and review.
+This repository is a fork of `BloopAI/vibe-kanban` taken at the
+pre-sunset cutover. The cutover removed every cloud-dependent feature
+— authentication, organizations, team collaboration, real-time sync,
+relay tunnel, analytics, error reporting — leaving a self-contained
+single-user kanban that runs entirely against a local SQLite
+database. Everything else (the kanban UI, workspaces, sessions,
+coding-agent integrations, PR creation, MCP server) still works the
+same way it did upstream.
 
-Vibe Kanban is built for this. Use kanban issues to plan work, either privately or with your team. When you're ready to begin, create workspaces where coding agents can execute.
+If you want the original cloud-enabled product, use
+[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban). If
+you want to keep using vibe-kanban locally now that the upstream
+hosted service has shut down, you're in the right place.
 
-- **Plan with kanban issues** — create, prioritise, and assign issues on a kanban board
-- **Run coding agents in workspaces** — each workspace gives an agent a branch, a terminal, and a dev server
-- **Review diffs and leave inline comments** — send feedback directly to the agent without leaving the UI
-- **Preview your app** — built-in browser with devtools, inspect mode, and device emulation
-- **Switch between 10+ coding agents** — Claude Code, Codex, Gemini CLI, GitHub Copilot, Amp, Cursor, OpenCode, Droid, CCR, and Qwen Code
-- **Create pull requests and merge** — open PRs with AI-generated descriptions, review on GitHub, and merge
+## What's in here
+
+- **Single-user local kanban** with synthetic identity auto-seeded
+  on first launch (no signup, no login)
+- **Workspaces, sessions, kanban board, settings** — fully functional
+  against a local SQLite database
+- **10+ coding agents** configurable from the UI: Claude Code, Codex,
+  Gemini CLI, GitHub Copilot, Amp, Cursor, OpenCode, Droid, CCR,
+  Qwen Code
+- **Pull request creation** with AI-generated descriptions
+- **MCP server** for programmatic access (`vibe-kanban-mcp --mode global`)
 
 ![](packages/public/vibe-kanban-screenshot-workspace.png)
 
-One command. Describe the work, review the diff, ship it.
+## Install
+
+### From a release (recommended)
+
+Download the latest binaries from the
+[releases page](https://github.com/kcarwileklaviyo/vibe-kanban-local/releases),
+make them executable, and run:
 
 ```bash
-npx vibe-kanban
+chmod +x server vibe-kanban-mcp
+./server                          # starts the UI
+./vibe-kanban-mcp --mode global   # optional: stdio MCP for agent integrations
 ```
 
+The server prints the URL it bound to (it auto-assigns a free port
+unless `PORT` is set) and writes the chosen port to
+`$TMPDIR/vibe-kanban/vibe-kanban.port` so other tools can find it.
 
-## Installation
+Only `macos-arm64` is published today. For other platforms, build
+from source.
 
-Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs/supported-coding-agents). Then in your terminal run:
+### From source
 
 ```bash
-npx vibe-kanban
+git clone git@github.com:kcarwileklaviyo/vibe-kanban-local.git
+cd vibe-kanban-local
+pnpm i
+pnpm run build
+cargo build --release --bin server --bin vibe-kanban-mcp
+./target/release/server
 ```
-
-## Documentation
-
-Head to the [website](https://vibekanban.com/docs) for the latest documentation and user guides.
-
-## Self-Hosting
-
-Want to host your own Vibe Kanban Cloud instance? See our [self-hosting guide](https://vibekanban.com/docs/self-hosting/deploy-docker).
-
-## Support
-
-We use [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) for feature requests. Please open a discussion to create a feature request. For bugs please open an issue on this repo.
-
-## Contributing
-
-We would prefer that ideas and changes are first raised with the core team via [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) or [Discord](https://discord.gg/AC4nwVtJM3), where we can discuss implementation details and alignment with the existing roadmap. Please do not open PRs without first discussing your proposal with the team.
 
 ## Development
 
@@ -77,87 +81,70 @@ We would prefer that ideas and changes are first raised with the core team via [
 - [pnpm](https://pnpm.io/) (>=8)
 
 Additional development tools:
+
 ```bash
 cargo install cargo-watch
 cargo install sqlx-cli
 ```
 
-Install dependencies:
+### Run the dev server
+
 ```bash
 pnpm i
-```
-
-### Running the dev server
-
-```bash
 pnpm run dev
 ```
 
-This will start the backend and web app. A blank DB will be copied from the `dev_assets_seed` folder.
+This starts the backend (with `cargo-watch`) and the web app. A blank
+DB is copied from `dev_assets_seed/` on first launch.
 
-### Building the web app
-
-To build just the web app:
+### Build the web app standalone
 
 ```bash
 cd packages/local-web
 pnpm run build
 ```
 
-### Build from source (macOS)
-
-1. Run `./local-build.sh`
-2. Test with `cd npx-cli && node bin/cli.js`
-
-### Environment Variables
-
-The following environment variables can be configured at build time or runtime:
+### Environment variables
 
 | Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `POSTHOG_API_KEY` | Build-time | Empty | PostHog analytics API key (disables analytics if empty) |
-| `POSTHOG_API_ENDPOINT` | Build-time | Empty | PostHog analytics endpoint (disables analytics if empty) |
-| `PORT` | Runtime | Auto-assign | **Production**: Server port. **Dev**: Frontend port (backend uses PORT+1) |
-| `BACKEND_PORT` | Runtime | `0` (auto-assign) | Backend server port (dev mode only, overrides PORT+1) |
-| `FRONTEND_PORT` | Runtime | `3000` | Frontend dev server port (dev mode only, overrides PORT) |
-| `HOST` | Runtime | `127.0.0.1` | Backend server host |
-| `MCP_HOST` | Runtime | Value of `HOST` | MCP server connection host (use `127.0.0.1` when `HOST=0.0.0.0` on Windows) |
-| `MCP_PORT` | Runtime | Value of `BACKEND_PORT` | MCP server connection port |
-| `DISABLE_WORKTREE_CLEANUP` | Runtime | Not set | Disable all git worktree cleanup including orphan and expired workspace cleanup (for debugging) |
-| `VK_ALLOWED_ORIGINS` | Runtime | Not set | Comma-separated list of origins that are allowed to make backend API requests (e.g., `https://my-vibekanban-frontend.com`) |
-| `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the local desktop app |
-| `VK_SHARED_RELAY_API_BASE` | Runtime | Not set | Base URL for the relay API used by tunnel-mode connections |
-| `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode when set (requires relay API base URL) |
+|---|---|---|---|
+| `PORT` | Runtime | Auto-assign | Server port (dev: frontend port; backend uses `PORT+1`) |
+| `BACKEND_PORT` | Runtime | `0` (auto) | Backend port in dev mode (overrides `PORT+1`) |
+| `FRONTEND_PORT` | Runtime | `3000` | Frontend dev server port (overrides `PORT`) |
+| `HOST` | Runtime | `127.0.0.1` | Backend bind address |
+| `MCP_HOST` | Runtime | `HOST` | MCP server connection host |
+| `MCP_PORT` | Runtime | `BACKEND_PORT` | MCP server connection port |
+| `VK_ALLOWED_ORIGINS` | Runtime | unset | Comma-separated list of origins permitted to call the backend (set when running behind a reverse proxy on a custom domain) |
+| `VK_NO_BROWSER` | Runtime | unset | Skip auto-opening the browser on server start (handy for daemon-driven restarts) |
+| `DISABLE_WORKTREE_CLEANUP` | Runtime | unset | Disable git worktree cleanup (debugging only) |
 
-**Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
+### Reverse proxy / custom domain
 
-#### Self-Hosting with a Reverse Proxy or Custom Domain
-
-When running Vibe Kanban behind a reverse proxy (e.g., nginx, Caddy, Traefik) or on a custom domain, you must set the `VK_ALLOWED_ORIGINS` environment variable. Without this, the browser's Origin header won't match the backend's expected host, and API requests will be rejected with a 403 Forbidden error.
-
-Set it to the full origin URL(s) where your frontend is accessible:
+When running behind a reverse proxy (nginx, Caddy, Traefik, etc.)
+or on a non-localhost domain, set `VK_ALLOWED_ORIGINS` to the public
+origin(s):
 
 ```bash
-# Single origin
 VK_ALLOWED_ORIGINS=https://vk.example.com
-
-# Multiple origins (comma-separated)
+# or comma-separated for multiple
 VK_ALLOWED_ORIGINS=https://vk.example.com,https://vk-staging.example.com
 ```
 
-### Remote Deployment
+Without this, the backend rejects requests with a 403 because the
+browser's `Origin` header won't match the bound host.
 
-When running Vibe Kanban on a remote server (e.g., via systemctl, Docker, or cloud hosting), you can configure your editor to open projects via SSH:
+## Documentation
 
-1. **Access via tunnel**: Use Cloudflare Tunnel, ngrok, or similar to expose the web UI
-2. **Configure remote SSH** in Settings → Editor Integration:
-   - Set **Remote SSH Host** to your server hostname or IP
-   - Set **Remote SSH User** to your SSH username (optional)
-3. **Prerequisites**:
-   - SSH access from your local machine to the remote server
-   - SSH keys configured (passwordless authentication)
-   - VSCode Remote-SSH extension
+The original upstream documentation site at vibekanban.com no longer
+exists. The `docs/` directory in this repo carries the parts that
+still apply post-cutover; sections describing cloud-only features
+(authentication, organizations, team collaboration, etc.) have been
+removed.
 
-When configured, the "Open in VSCode" buttons will generate URLs like `vscode://vscode-remote/ssh-remote+user@host/path` that open your local editor and connect to the remote server.
+## Diverging from upstream
 
-See the [documentation](https://vibekanban.com/docs/settings/general) for detailed setup instructions.
+This fork tracks `BloopAI/vibe-kanban` at a specific commit; it does
+not pull future upstream changes. Cherry-picking from upstream is
+possible but generally requires conflict resolution against the cloud
+removals. PRs welcome that bring in upstream improvements compatible
+with the local-only model.
