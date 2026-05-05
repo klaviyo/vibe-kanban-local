@@ -84,7 +84,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let user = User::create(
         pool,
@@ -97,7 +98,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let project = ProjectRow::create(
         pool,
@@ -109,7 +111,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let status = ProjectStatus::create(
         pool,
@@ -124,7 +127,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let tag = ProjectTag::create(
         pool,
@@ -137,7 +141,8 @@ async fn seed(pool: &SqlitePool) -> Fixtures {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let workspace = Workspace::create(
         pool,
@@ -191,6 +196,7 @@ async fn make_issue(pool: &SqlitePool, fx: &Fixtures, simple_id: &str) -> Issue 
     )
     .await
     .unwrap()
+    .data
 }
 
 #[tokio::test]
@@ -205,7 +211,8 @@ async fn organization_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let fetched = Organization::find_by_id(&pool, org.id)
         .await
@@ -223,13 +230,14 @@ async fn organization_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "Acme Inc");
 
     let all = Organization::find_all(&pool).await.unwrap();
     assert_eq!(all.len(), 1);
 
-    assert_eq!(Organization::delete(&pool, org.id).await.unwrap(), 1);
+    assert!(Organization::delete(&pool, org.id).await.unwrap().txid > 0);
     assert!(
         Organization::find_by_id(&pool, org.id)
             .await
@@ -252,7 +260,8 @@ async fn user_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     assert_eq!(
         User::find_by_email(&pool, "ada@example.com")
@@ -273,12 +282,13 @@ async fn user_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.first_name.as_deref(), Some("Augusta"));
     assert_eq!(updated.last_name.as_deref(), Some("King"));
     assert!(updated.username.is_none());
 
-    assert_eq!(User::delete(&pool, user.id).await.unwrap(), 1);
+    assert!(User::delete(&pool, user.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -295,13 +305,15 @@ async fn organization_member_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert!(matches!(member.role, MemberRole::Admin));
 
     let demoted =
         OrganizationMember::update_role(&pool, fx.organization.id, fx.user.id, MemberRole::Member)
             .await
-            .unwrap();
+            .unwrap()
+            .data;
     assert!(matches!(demoted.role, MemberRole::Member));
 
     assert_eq!(
@@ -319,11 +331,12 @@ async fn organization_member_crud_round_trip() {
         1
     );
 
-    assert_eq!(
+    assert!(
         OrganizationMember::delete(&pool, fx.organization.id, fx.user.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
 }
 
@@ -360,7 +373,8 @@ async fn project_status_and_tag_crud() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "In Progress");
     assert_eq!(updated.sort_order, 2);
     assert!(updated.hidden);
@@ -379,7 +393,8 @@ async fn project_status_and_tag_crud() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(tag_updated.name, "bug");
     assert_eq!(
         ProjectTag::find_by_project(&pool, fx.project.id)
@@ -419,7 +434,8 @@ async fn issue_crud_round_trip_with_patch_shape() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.title, "Hello world");
     assert!(updated.description.is_none());
     assert!(updated.priority.is_none());
@@ -439,7 +455,7 @@ async fn issue_crud_round_trip_with_patch_shape() {
             .len(),
         1
     );
-    assert_eq!(Issue::delete(&pool, issue.id).await.unwrap(), 1);
+    assert!(Issue::delete(&pool, issue.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -476,7 +492,8 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         IssueAssignee::find_by_issue(&pool, issue.id)
             .await
@@ -484,11 +501,12 @@ async fn issue_assignee_follower_tag_round_trip() {
             .len(),
         1
     );
-    assert_eq!(
+    assert!(
         IssueAssignee::delete_by_issue_and_user(&pool, issue.id, fx.user.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
     assert!(
         IssueAssignee::find_by_id(&pool, assignee.id)
@@ -507,8 +525,15 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
-    assert_eq!(IssueFollower::delete(&pool, follower.id).await.unwrap(), 1);
+    .unwrap()
+    .data;
+    assert!(
+        IssueFollower::delete(&pool, follower.id)
+            .await
+            .unwrap()
+            .txid
+            > 0
+    );
 
     let issue_tag = IssueTag::create(
         &pool,
@@ -520,7 +545,8 @@ async fn issue_assignee_follower_tag_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         IssueTag::find_by_issue(&pool, issue.id)
             .await
@@ -528,7 +554,7 @@ async fn issue_assignee_follower_tag_round_trip() {
             .len(),
         1
     );
-    assert_eq!(IssueTag::delete(&pool, issue_tag.id).await.unwrap(), 1);
+    assert!(IssueTag::delete(&pool, issue_tag.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -566,7 +592,8 @@ async fn issue_relationship_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let fetched = IssueRelationship::find_by_id(&pool, rel.id).await.unwrap();
     assert!(fetched.is_some());
     assert_eq!(
@@ -576,7 +603,7 @@ async fn issue_relationship_round_trip() {
             .len(),
         1
     );
-    assert_eq!(IssueRelationship::delete(&pool, rel.id).await.unwrap(), 1);
+    assert!(IssueRelationship::delete(&pool, rel.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -622,7 +649,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let updated = IssueComment::update(
         &pool,
@@ -633,7 +661,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.message, "hi there");
 
     let reaction = IssueCommentReaction::create(
@@ -649,7 +678,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let updated = IssueCommentReaction::update(
         &pool,
         reaction.id,
@@ -658,7 +688,8 @@ async fn issue_comment_and_reaction_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.emoji, "🎉");
     assert_eq!(
         IssueCommentReaction::find_by_comment(&pool, comment.id)
@@ -667,13 +698,14 @@ async fn issue_comment_and_reaction_round_trip() {
             .len(),
         1
     );
-    assert_eq!(
+    assert!(
         IssueCommentReaction::delete(&pool, reaction.id)
             .await
-            .unwrap(),
-        1
+            .unwrap()
+            .txid
+            > 0
     );
-    assert_eq!(IssueComment::delete(&pool, comment.id).await.unwrap(), 1);
+    assert!(IssueComment::delete(&pool, comment.id).await.unwrap().txid > 0);
 }
 
 #[tokio::test]
@@ -693,7 +725,8 @@ async fn workspace_issue_link_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(
         WorkspaceIssueLink::find_by_issue(&pool, issue.id)
             .await
@@ -708,7 +741,13 @@ async fn workspace_issue_link_round_trip() {
             .len(),
         1
     );
-    assert_eq!(WorkspaceIssueLink::delete(&pool, link.id).await.unwrap(), 1);
+    assert!(
+        WorkspaceIssueLink::delete(&pool, link.id)
+            .await
+            .unwrap()
+            .txid
+            > 0
+    );
 }
 
 #[tokio::test]
@@ -756,13 +795,14 @@ async fn project_row_crud_round_trip() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     assert_eq!(updated.name, "Renamed");
     assert_eq!(updated.sort_order, 7);
     // unchanged via skip-shape
     assert_eq!(updated.color, fx.project.color);
 
-    assert_eq!(ProjectRow::delete(&pool, fx.project.id).await.unwrap(), 1);
+    assert!(ProjectRow::delete(&pool, fx.project.id).await.unwrap().txid > 0);
     assert!(
         ProjectRow::find_by_id(&pool, fx.project.id)
             .await
@@ -832,7 +872,8 @@ async fn issue_follower_find_by_issue_orders_by_id() {
                 },
             )
             .await
-            .unwrap(),
+            .unwrap()
+            .data,
         );
     }
 
@@ -880,7 +921,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let tag_b = ProjectTag::create(
         &pool,
         Uuid::from_u128(0xBB),
@@ -892,7 +934,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
     let tag_c = ProjectTag::create(
         &pool,
         Uuid::from_u128(0xCC),
@@ -904,7 +947,8 @@ async fn issue_tag_find_by_issue_orders_by_id() {
         },
     )
     .await
-    .unwrap();
+    .unwrap()
+    .data;
 
     let id_a = Uuid::from_u128(0x300);
     let id_b = Uuid::from_u128(0x200);
@@ -1132,4 +1176,128 @@ fn workspace_issue_link_wire_conversion_json_shape() {
         "created_at": fixed_ts_json(2026, 6, 1),
     });
     assert_eq!(actual, expected);
+}
+
+// === End-to-end txid contract proof ===
+//
+// Proves the SMS2-784 acceptance criteria at the repository surface:
+// - every committed mutation returns a non-zero, strictly-increasing `txid`
+// - a rolled-back data write never advances the visible `mutation_log` sequence
+
+#[tokio::test]
+async fn mutations_return_sqlite_backed_txids_and_rollbacks_do_not_advance_visible() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+
+    // First committed create.
+    let first = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            issue_number: 1,
+            simple_id: "TX-1".into(),
+            creator_user_id: Some(fx.user.id),
+            request: create_issue_request(fx.project.id, fx.status.id),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(first.txid > 0, "txid must be non-zero, got {}", first.txid);
+    let visible_after_first: i64 = sqlx::query_scalar("SELECT MAX(id) FROM mutation_log")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(visible_after_first, first.txid);
+
+    // Second committed create — strictly increasing.
+    let second = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            issue_number: 2,
+            simple_id: "TX-2".into(),
+            creator_user_id: Some(fx.user.id),
+            request: create_issue_request(fx.project.id, fx.status.id),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        second.txid > first.txid,
+        "second txid must exceed first: {} <= {}",
+        second.txid,
+        first.txid,
+    );
+
+    // Rolled-back create: FK violation aborts the inner transaction, so the
+    // mutation_log row inserted alongside the failing data write is rolled
+    // back too. Visible `mutation_log` MAX must NOT advance.
+    let pre_rollback_visible: i64 = sqlx::query_scalar("SELECT MAX(id) FROM mutation_log")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let rolled_back = Issue::create(
+        &pool,
+        &CreateIssue {
+            id: Uuid::new_v4(),
+            issue_number: 3,
+            simple_id: "TX-3".into(),
+            creator_user_id: Some(fx.user.id),
+            // Unknown status_id triggers an FK violation, rolling back the txn.
+            request: create_issue_request(fx.project.id, Uuid::new_v4()),
+        },
+    )
+    .await;
+    assert!(rolled_back.is_err(), "expected FK violation");
+    let post_rollback_visible: i64 = sqlx::query_scalar("SELECT MAX(id) FROM mutation_log")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        post_rollback_visible, pre_rollback_visible,
+        "rolled-back data write must not advance the visible mutation_log sequence",
+    );
+
+    // Update on the second issue — strictly increasing past second.txid.
+    let updated = Issue::update(
+        &pool,
+        second.data.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: Some("renamed".into()),
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        updated.txid > second.txid,
+        "update txid must exceed prior committed: {} <= {}",
+        updated.txid,
+        second.txid,
+    );
+
+    // Delete on the second issue — strictly increasing past update.
+    let deleted = Issue::delete(&pool, second.data.id).await.unwrap();
+    assert!(
+        deleted.txid > updated.txid,
+        "delete txid must exceed prior committed: {} <= {}",
+        deleted.txid,
+        updated.txid,
+    );
+
+    // Visible MAX after all committed mutations equals the last committed txid.
+    let final_visible: i64 = sqlx::query_scalar("SELECT MAX(id) FROM mutation_log")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(final_visible, deleted.txid);
 }

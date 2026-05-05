@@ -1,5 +1,6 @@
 use api_types::{
-    CreateIssueAssigneeRequest, IssueAssignee, ListIssueAssigneesResponse, MutationResponse,
+    CreateIssueAssigneeRequest, DeleteResponse, IssueAssignee, ListIssueAssigneesResponse,
+    MutationResponse,
 };
 use axum::{
     Router,
@@ -69,8 +70,8 @@ async fn create_issue_assignee(
 async fn delete_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Path(issue_assignee_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    client.delete_issue_assignee(issue_assignee_id).await?;
-    Ok(ResponseJson(ApiResponse::success(())))
+    let response = client.delete_issue_assignee(issue_assignee_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
