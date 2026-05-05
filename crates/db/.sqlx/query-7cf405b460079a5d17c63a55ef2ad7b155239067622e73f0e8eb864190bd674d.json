@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT organization_id as \"organization_id!: Uuid\",\n                      user_id         as \"user_id!: Uuid\",\n                      role            as \"role!: MemberRole\",\n                      joined_at       as \"joined_at!: DateTime<Utc>\",\n                      last_seen_at    as \"last_seen_at: DateTime<Utc>\"\n               FROM organization_members\n               WHERE organization_id = $1\n               ORDER BY joined_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "organization_id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "user_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "role!: MemberRole",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "joined_at!: DateTime<Utc>",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_seen_at: DateTime<Utc>",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "7cf405b460079a5d17c63a55ef2ad7b155239067622e73f0e8eb864190bd674d"
+}

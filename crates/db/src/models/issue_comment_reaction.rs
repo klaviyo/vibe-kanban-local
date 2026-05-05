@@ -1,0 +1,131 @@
+use api_types::{
+    self as wire,
+    issue_comment_reaction::{
+        CreateIssueCommentReactionRequest, UpdateIssueCommentReactionRequest,
+    },
+};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct IssueCommentReaction {
+    pub id: Uuid,
+    pub comment_id: Uuid,
+    pub user_id: Uuid,
+    pub emoji: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateIssueCommentReaction {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub request: CreateIssueCommentReactionRequest,
+}
+
+impl IssueCommentReaction {
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueCommentReaction,
+            r#"SELECT id         as "id!: Uuid",
+                      comment_id as "comment_id!: Uuid",
+                      user_id    as "user_id!: Uuid",
+                      emoji,
+                      created_at as "created_at!: DateTime<Utc>"
+               FROM issue_comment_reactions
+               WHERE id = $1"#,
+            id,
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn find_by_comment(
+        pool: &SqlitePool,
+        comment_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            IssueCommentReaction,
+            r#"SELECT id         as "id!: Uuid",
+                      comment_id as "comment_id!: Uuid",
+                      user_id    as "user_id!: Uuid",
+                      emoji,
+                      created_at as "created_at!: DateTime<Utc>"
+               FROM issue_comment_reactions
+               WHERE comment_id = $1
+               ORDER BY created_at ASC"#,
+            comment_id,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        data: &CreateIssueCommentReaction,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as!(
+            IssueCommentReaction,
+            r#"INSERT INTO issue_comment_reactions (id, comment_id, user_id, emoji)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id         as "id!: Uuid",
+                         comment_id as "comment_id!: Uuid",
+                         user_id    as "user_id!: Uuid",
+                         emoji,
+                         created_at as "created_at!: DateTime<Utc>""#,
+            data.id,
+            data.request.comment_id,
+            data.user_id,
+            data.request.emoji,
+        )
+        .fetch_one(pool)
+        .await
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: Uuid,
+        data: &UpdateIssueCommentReactionRequest,
+    ) -> Result<Self, sqlx::Error> {
+        let update_emoji = data.emoji.is_some();
+        let emoji_value = data.emoji.clone();
+
+        sqlx::query_as!(
+            IssueCommentReaction,
+            r#"UPDATE issue_comment_reactions
+               SET emoji = CASE WHEN $2 THEN $3 ELSE emoji END
+               WHERE id = $1
+               RETURNING id         as "id!: Uuid",
+                         comment_id as "comment_id!: Uuid",
+                         user_id    as "user_id!: Uuid",
+                         emoji,
+                         created_at as "created_at!: DateTime<Utc>""#,
+            id,
+            update_emoji,
+            emoji_value,
+        )
+        .fetch_one(pool)
+        .await
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM issue_comment_reactions WHERE id = $1", id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+}
+
+impl From<IssueCommentReaction> for wire::IssueCommentReaction {
+    fn from(value: IssueCommentReaction) -> Self {
+        Self {
+            id: value.id,
+            comment_id: value.comment_id,
+            user_id: value.user_id,
+            emoji: value.emoji,
+            created_at: value.created_at,
+        }
+    }
+}
