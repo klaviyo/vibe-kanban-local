@@ -320,6 +320,38 @@ fn derive_id(host_identity: &str, kind: &str) -> Uuid {
     Uuid::new_v5(&IDENTITY_NAMESPACE, name.as_bytes())
 }
 
+/// The canonical synthetic identity ids persisted by the first-launch seeder.
+/// Read this rather than re-deriving identifiers in route-layer code, so all
+/// callers agree on a single user/organization/project regardless of which
+/// per-process random state they happen to see.
+#[derive(Debug, Clone, Copy)]
+pub struct IdentityMarker {
+    pub organization_id: Uuid,
+    pub user_id: Uuid,
+    pub project_id: Uuid,
+}
+
+/// Reads the persisted `identity_seed_marker` row written by the first-launch
+/// seeder. Returns `None` if the seeder has not yet run.
+pub async fn read_marker(pool: &SqlitePool) -> Result<Option<IdentityMarker>, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"SELECT organization_id as "organization_id!: Uuid",
+                      user_id         as "user_id!: Uuid",
+                      project_id      as "project_id!: Uuid",
+                      host_identity,
+                      host_label
+               FROM identity_seed_marker
+               WHERE id = 1"#
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| IdentityMarker {
+        organization_id: r.organization_id,
+        user_id: r.user_id,
+        project_id: r.project_id,
+    }))
+}
+
 /// Resolve a stable host identity source for the running OS. Linux uses the
 /// systemd-mandated `/etc/machine-id`, with the dbus-era fallback for hosts
 /// that predate it. macOS calls `gethostuuid(3)` from libc, which returns the

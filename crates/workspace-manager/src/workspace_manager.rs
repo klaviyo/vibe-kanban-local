@@ -306,57 +306,96 @@ impl WorkspaceManager {
 
         tokio::fs::create_dir_all(workspace_dir).await?;
 
-        let mut created_worktrees: Vec<RepoWorktree> = Vec::new();
-
+        // Fan out `git worktree add` across repos in parallel. Each call shells
+        // out to a separate `.git` dir, so they don't contend with each other;
+        // the dominant per-repo cost is the working-tree checkout. Sequential
+        // fan-in here was the bulk of multi-repo workspace creation latency.
+        let mut tasks: tokio::task::JoinSet<Result<RepoWorktree, (String, WorktreeError)>> =
+            tokio::task::JoinSet::new();
         for input in repos {
             let worktree_path = workspace_dir.join(&input.repo.name);
+            let repo_path = input.repo.path.clone();
+            let repo_name = input.repo.name.clone();
+            let repo_id = input.repo.id;
+            let target_branch = input.target_branch.clone();
+            let branch = branch_name.to_string();
 
             debug!(
                 "Creating worktree for repo '{}' at {}",
-                input.repo.name,
+                repo_name,
                 worktree_path.display()
             );
 
-            match WorktreeManager::create_worktree(
-                &input.repo.path,
-                branch_name,
-                &worktree_path,
-                &input.target_branch,
-                true,
-            )
-            .await
-            {
-                Ok(()) => {
-                    created_worktrees.push(RepoWorktree {
-                        repo_id: input.repo.id,
-                        repo_name: input.repo.name.clone(),
-                        source_repo_path: input.repo.path.clone(),
+            tasks.spawn(async move {
+                match WorktreeManager::create_worktree(
+                    &repo_path,
+                    &branch,
+                    &worktree_path,
+                    &target_branch,
+                    true,
+                )
+                .await
+                {
+                    Ok(()) => Ok(RepoWorktree {
+                        repo_id,
+                        repo_name: repo_name.clone(),
+                        source_repo_path: repo_path,
                         worktree_path,
-                    });
+                    }),
+                    Err(e) => Err((repo_name, e)),
                 }
-                Err(e) => {
+            });
+        }
+
+        let mut created_worktrees: Vec<RepoWorktree> = Vec::new();
+        let mut first_error: Option<(String, WorktreeError)> = None;
+
+        // Drain all tasks even after a failure so no successful worktree is
+        // left orphaned by an early return — rollback below relies on having
+        // the full set of completed entries.
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(Ok(wt)) => created_worktrees.push(wt),
+                Ok(Err((name, err))) => {
                     error!(
-                        "Failed to create worktree for repo '{}': {}. Rolling back...",
-                        input.repo.name, e
-                    );
-
-                    // Rollback: cleanup all worktrees we've created so far
-                    Self::cleanup_created_worktrees(&created_worktrees).await;
-
-                    // Also remove the workspace directory if it's empty
-                    if let Err(cleanup_err) = tokio::fs::remove_dir(workspace_dir).await {
-                        debug!(
-                            "Could not remove workspace dir during rollback: {}",
-                            cleanup_err
-                        );
-                    }
-
-                    return Err(WorkspaceError::PartialCreation(format!(
                         "Failed to create worktree for repo '{}': {}",
-                        input.repo.name, e
-                    )));
+                        name, err
+                    );
+                    if first_error.is_none() {
+                        first_error = Some((name, err));
+                    }
+                }
+                Err(join_err) => {
+                    error!("Worktree creation task failed to join: {}", join_err);
+                    if first_error.is_none() {
+                        first_error = Some((
+                            "(unknown)".to_string(),
+                            WorktreeError::TaskJoin(format!("{join_err}")),
+                        ));
+                    }
                 }
             }
+        }
+
+        if let Some((repo_name, err)) = first_error {
+            error!(
+                "Rolling back {} successful worktrees after parallel create failure",
+                created_worktrees.len()
+            );
+            Self::cleanup_created_worktrees(&created_worktrees).await;
+
+            // Also remove the workspace directory if it's empty
+            if let Err(cleanup_err) = tokio::fs::remove_dir(workspace_dir).await {
+                debug!(
+                    "Could not remove workspace dir during rollback: {}",
+                    cleanup_err
+                );
+            }
+
+            return Err(WorkspaceError::PartialCreation(format!(
+                "Failed to create worktree for repo '{}': {}",
+                repo_name, err
+            )));
         }
 
         info!(

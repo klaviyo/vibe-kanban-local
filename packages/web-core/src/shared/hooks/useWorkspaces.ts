@@ -173,14 +173,16 @@ export function useWorkspaces(): UseWorkspacesResult {
       placeholderData: keepPreviousData,
     });
 
-  // Fetch summaries for archived workspaces
+  // Fetch summaries for archived workspaces. Polls less frequently than active
+  // because archived workspaces are by definition done — only `pr_status` can
+  // drift from upstream, and that's not time-sensitive in the sidebar.
   const { data: archivedSummaries = new Map<string, WorkspaceSummary>() } =
     useQuery({
       queryKey: workspaceSummaryKeys.byArchived(true, hostId),
       queryFn: () => fetchWorkspaceSummariesByArchived(true, hostId),
       enabled: archivedIsInitialized,
       staleTime: 1000,
-      refetchInterval: 15000,
+      refetchInterval: 60000,
       refetchOnWindowFocus: false,
       refetchOnMount: 'always',
       placeholderData: keepPreviousData,

@@ -445,7 +445,10 @@ impl StandardCodingAgentExecutor for Codex {
 
 impl Codex {
     pub fn base_command() -> &'static str {
-        "npx -y @openai/codex@0.124.0"
+        // `--prefer-offline`: with a pinned version, npm's cache key is the
+        // exact tarball, so once it's local there's nothing the registry can
+        // tell us. Skips the per-spawn metadata revalidation HEAD request.
+        "npx --prefer-offline -y @openai/codex@0.124.0"
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {

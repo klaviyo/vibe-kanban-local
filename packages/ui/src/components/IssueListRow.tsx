@@ -115,16 +115,17 @@ export function IssueListRow({
             className
           )}
         >
-          {/* Left side: Checkbox/Drag handle, Priority, ID, Status, Title */}
+          {/* Left side: Drag handle + Checkbox (separate slots), Priority, ID, Status, Title */}
           <div className="flex items-center gap-double flex-1 min-w-0">
-            <div className="relative shrink-0 w-4 flex items-center justify-center">
-              {/* Drag handle — hidden when checkbox is shown */}
+            {/* Drag handle and checkbox are siblings in fixed-width slots so
+                the surrounding content never shifts. The drag handle stays
+                visible at all times — including when other rows are checked
+                — so the user can still drag any row in multi-select mode. */}
+            <div className="flex items-center gap-half shrink-0">
+              {/* Drag handle — always visible. */}
               <div
                 {...provided.dragHandleProps}
-                className={cn(
-                  'cursor-grab',
-                  showCheckbox ? 'hidden' : 'flex group-hover/row:hidden'
-                )}
+                className="shrink-0 w-4 flex items-center justify-center cursor-grab"
                 onClick={(e) => e.stopPropagation()}
               >
                 <DotsSixVerticalIcon
@@ -132,11 +133,16 @@ export function IssueListRow({
                   weight="bold"
                 />
               </div>
-              {/* Checkbox — shown on hover or when multi-select active */}
+              {/* Checkbox slot — always reserves its space (display: flex);
+                  only the icon's paint is toggled via visibility. Visible on
+                  row hover, when this row is checked, or whenever multi-select
+                  is globally active. */}
               <div
                 className={cn(
-                  'items-center justify-center',
-                  showCheckbox ? 'flex' : 'hidden group-hover/row:flex'
+                  'shrink-0 w-4 flex items-center justify-center',
+                  showCheckbox
+                    ? 'visible'
+                    : 'invisible group-hover/row:visible'
                 )}
                 onClick={(e) => e.stopPropagation()}
               >

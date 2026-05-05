@@ -89,7 +89,10 @@ type ServerPassword = String;
 
 impl Opencode {
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let builder = CommandBuilder::new("npx -y opencode-ai@1.4.7")
+        // `--prefer-offline`: with a pinned version, npm's cache key is the
+        // exact tarball, so once it's local there's nothing the registry can
+        // tell us. Skips the per-spawn metadata revalidation HEAD request.
+        let builder = CommandBuilder::new("npx --prefer-offline -y opencode-ai@1.4.7")
             // Pass hostname/port as separate args so OpenCode treats them as explicitly set
             // (it checks `process.argv.includes(\"--port\")` / `\"--hostname\"`).
             .extend_params(["serve", "--hostname", "127.0.0.1", "--port", "0"]);

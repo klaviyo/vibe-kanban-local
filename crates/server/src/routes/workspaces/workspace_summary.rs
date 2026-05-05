@@ -112,11 +112,15 @@ pub async fn get_workspace_summaries(
     // 6. Get PR status for each workspace
     let pr_statuses = PullRequest::get_latest_for_workspaces(pool, archived).await?;
 
-    // 7. Compute diff stats for each workspace (in parallel)
-    let diff_futures: Vec<_> = workspaces
-        .iter()
-        .map(|ws| {
-            let workspace = ws.clone();
+    // 7. Compute diff stats for each workspace with bounded concurrency. Each
+    // diff op runs git2 across potentially-large repos via spawn_blocking;
+    // unbounded join_all here meant a few dozen workspaces could starve the
+    // blocking pool and hang the per-page summaries call indefinitely.
+    use futures_util::stream::StreamExt;
+    const DIFF_STATS_CONCURRENCY: usize = 8;
+    let diff_inputs: Vec<Workspace> = workspaces.clone();
+    let diff_results: Vec<Option<(Uuid, DiffStats)>> = futures_util::stream::iter(diff_inputs)
+        .map(|workspace| {
             let deployment = deployment.clone();
             async move {
                 if workspace.container_ref.is_some() {
@@ -128,10 +132,9 @@ pub async fn get_workspace_summaries(
                 }
             }
         })
-        .collect();
-
-    let diff_results: Vec<Option<(Uuid, DiffStats)>> =
-        futures_util::future::join_all(diff_futures).await;
+        .buffer_unordered(DIFF_STATS_CONCURRENCY)
+        .collect()
+        .await;
     let diff_stats: HashMap<Uuid, DiffStats> = diff_results.into_iter().flatten().collect();
 
     // 8. Assemble response

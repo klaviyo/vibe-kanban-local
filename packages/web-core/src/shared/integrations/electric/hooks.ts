@@ -78,6 +78,13 @@ export interface UseShapeOptions<
    * insert/update/remove functions for optimistic mutations.
    */
   mutation?: M;
+  /**
+   * Background refetch interval in ms. Use this for shapes whose data can
+   * change out-of-band (MCP, daemon, another tab) — without it, the cached
+   * snapshot only refreshes on mutation invalidation or page reload.
+   * Defaults to no polling.
+   */
+  refetchIntervalMs?: number;
 }
 
 type Row = Record<string, unknown> & { id?: string };
@@ -246,7 +253,7 @@ export function useShape<
 ): M extends MutationDefinition<unknown, unknown, unknown>
   ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
   : UseShapeResult<T> {
-  const { enabled = true, mutation } = options;
+  const { enabled = true, mutation, refetchIntervalMs } = options;
 
   const queryClient = useQueryClient();
 
@@ -268,6 +275,7 @@ export function useShape<
     queryFn: () => fetchShapeData(shape, stableParams),
     enabled,
     staleTime: DEFAULT_STALE_TIME_MS,
+    refetchInterval: refetchIntervalMs,
   });
 
   const items = enabled ? (query.data ?? []) : [];
@@ -345,6 +353,7 @@ export function useShape<
       const transport = mutationTransport(localMutationRoute, mutationUrl, '');
       const response = await transport.send(transport.url, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(row),
       });
       if (!response.ok) {
@@ -411,6 +420,7 @@ export function useShape<
       );
       const response = await transport.send(transport.url, {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(changes),
       });
       if (!response.ok) {
@@ -468,6 +478,7 @@ export function useShape<
       );
       const response = await transport.send(transport.url, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: body }),
       });
       if (!response.ok) {

@@ -49,7 +49,11 @@ pub struct Copilot {
 
 impl Copilot {
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new("npx -y @github/copilot@0.0.403");
+        // `--prefer-offline`: with a pinned version, npm's cache key is the
+        // exact tarball, so once it's local there's nothing the registry can
+        // tell us. Skips the per-spawn metadata revalidation HEAD request.
+        let mut builder =
+            CommandBuilder::new("npx --prefer-offline -y @github/copilot@0.0.403");
 
         if self.allow_all_tools.unwrap_or(false) {
             builder = builder.extend_params(["--allow-all-tools"]);

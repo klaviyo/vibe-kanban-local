@@ -1553,7 +1553,6 @@ export const NavbarActionGroups = {
     Actions.ToggleRightSidebar,
     NavbarDivider,
     Actions.OpenCommandBar,
-    Actions.Feedback,
     Actions.WorkspacesGuide,
     Actions.ProjectsGuide,
     Actions.Settings,

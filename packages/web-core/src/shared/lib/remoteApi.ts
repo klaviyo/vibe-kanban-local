@@ -13,6 +13,7 @@ import type {
   UpdateProjectStatusRequest,
 } from 'shared/remote-types';
 import { getAuthRuntime } from '@/shared/lib/auth/runtime';
+import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { syncRelayApiBaseWithRemote } from '@/shared/lib/relayBackendApi';
 
 const BUILD_TIME_API_BASE = import.meta.env.VITE_VK_SHARED_API_BASE || '';
@@ -107,34 +108,59 @@ export interface BulkUpdateProjectItem {
   changes: Partial<UpdateProjectRequest>;
 }
 
+// Local-mode bulk fan-out helper. The cloud exposed `/v1/<entity>/bulk`
+// endpoints; the local backend serves single-entity PATCHes only. Fan out the
+// updates as parallel PATCH /api/remote/<entity>/{id} calls.
+async function fanOutPatch(
+  basePath: string,
+  updates: Array<{ id: string; changes: Record<string, unknown> }>,
+  entityLabel: string
+): Promise<void> {
+  await Promise.all(
+    updates.map(async ({ id, changes }) => {
+      const response = await makeLocalApiRequest(`${basePath}/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes),
+      });
+      if (!response.ok) {
+        let message = `Failed to update ${entityLabel} ${id}`;
+        try {
+          const error = await response.json();
+          message = error.message || message;
+        } catch {
+          // ignore JSON parse failure on error body
+        }
+        throw new Error(message);
+      }
+    })
+  );
+}
+
 export async function bulkUpdateProjects(
   updates: BulkUpdateProjectItem[]
 ): Promise<void> {
-  const response = await makeRequest('/v1/projects/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      updates: updates.map((u) => ({ id: u.id, ...u.changes })),
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to bulk update projects');
-  }
+  await fanOutPatch(
+    '/api/remote/projects',
+    updates.map((u) => ({
+      id: u.id,
+      changes: u.changes as Record<string, unknown>,
+    })),
+    'project'
+  );
 }
 
 export async function bulkUpdateIssues(
   updates: BulkUpdateIssueItem[]
 ): Promise<void> {
-  const response = await makeRequest('/v1/issues/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      updates: updates.map((u) => ({ id: u.id, ...u.changes })),
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to bulk update issues');
-  }
+  await fanOutPatch(
+    '/api/remote/issues',
+    updates.map((u) => ({
+      id: u.id,
+      changes: u.changes as Record<string, unknown>,
+    })),
+    'issue'
+  );
 }
 
 export interface BulkUpdateProjectStatusItem {
@@ -145,16 +171,14 @@ export interface BulkUpdateProjectStatusItem {
 export async function bulkUpdateProjectStatuses(
   updates: BulkUpdateProjectStatusItem[]
 ): Promise<void> {
-  const response = await makeRequest('/v1/project_statuses/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      updates: updates.map((u) => ({ id: u.id, ...u.changes })),
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to bulk update project statuses');
-  }
+  await fanOutPatch(
+    '/api/remote/project-statuses',
+    updates.map((u) => ({
+      id: u.id,
+      changes: u.changes as Record<string, unknown>,
+    })),
+    'project status'
+  );
 }
 
 // ---------------------------------------------------------------------------
