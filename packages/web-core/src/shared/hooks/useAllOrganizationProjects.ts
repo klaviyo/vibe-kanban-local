@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import { createShapeCollection } from '@/shared/lib/electric/collections';
+import { useMemo } from 'react';
+import { useQueries } from '@tanstack/react-query';
+
+import { fetchShapeRows } from '@/shared/lib/electric/fetchShape';
 import { PROJECTS_SHAPE, type Project } from 'shared/remote-types';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
@@ -8,13 +10,13 @@ interface UseAllOrganizationProjectsOptions {
   enabled?: boolean;
 }
 
+const STALE_TIME_MS = 30 * 1000;
+
 /**
  * Hook that fetches remote projects across ALL user organizations.
- * Uses the raw collection API (createShapeCollection + subscribeChanges)
- * to avoid calling useShape in a loop (which would violate React hooks rules).
  *
- * Collections are cached by createShapeCollection (5-min GC),
- * so no duplicate syncs if the same org's projects are subscribed elsewhere.
+ * Uses parallel React Query fetches (one per org) so the results stay in the
+ * shared cache and de-duplicate with same-org subscriptions elsewhere.
  */
 export function useAllOrganizationProjects(
   options: UseAllOrganizationProjectsOptions = {}
@@ -23,71 +25,34 @@ export function useAllOrganizationProjects(
   const { isSignedIn } = useAuth();
   const { data: orgsData } = useUserOrganizations();
 
-  // Stable org IDs list — only recompute when orgsData changes
   const orgIds = useMemo(
     () => (orgsData?.organizations ?? []).map((o) => o.id),
     [orgsData?.organizations]
   );
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queries = useQueries({
+    queries: orgIds.map((orgId) => ({
+      queryKey: ['shape', PROJECTS_SHAPE.table, { organization_id: orgId }],
+      queryFn: () => fetchShapeRows(PROJECTS_SHAPE, { organization_id: orgId }),
+      enabled: enabled && isSignedIn && orgIds.length > 0,
+      staleTime: STALE_TIME_MS,
+    })),
+  });
 
-  useEffect(() => {
-    if (!enabled || !isSignedIn || orgIds.length === 0) {
-      setProjects([]);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-
-    const subscriptions: { unsubscribe: () => void }[] = [];
-    const projectsByOrg = new Map<string, Project[]>();
-
-    const updateAggregated = () => {
-      setProjects(Array.from(projectsByOrg.values()).flat());
-    };
-
-    for (const orgId of orgIds) {
-      const collection = createShapeCollection(PROJECTS_SHAPE, {
-        organization_id: orgId,
-      });
-
-      // Read initial data if already synced
-      if (collection.isReady()) {
-        projectsByOrg.set(orgId, collection.toArray as unknown as Project[]);
+  const data = useMemo<Project[]>(() => {
+    const result: Project[] = [];
+    for (const q of queries) {
+      if (q.data) {
+        result.push(...q.data);
       }
-
-      // Subscribe to live changes
-      const sub = collection.subscribeChanges(
-        () => {
-          projectsByOrg.set(orgId, collection.toArray as unknown as Project[]);
-          updateAggregated();
-          setIsLoading(false);
-        },
-        { includeInitialState: true }
-      );
-      subscriptions.push(sub);
     }
+    return result;
+  }, [queries]);
 
-    // Initial aggregation from any already-ready collections
-    updateAggregated();
+  const isLoading =
+    enabled && isSignedIn && orgIds.length > 0
+      ? queries.some((q) => q.isLoading)
+      : false;
 
-    // Check if all collections are already ready
-    const allReady = orgIds.every((id) => {
-      const col = createShapeCollection(PROJECTS_SHAPE, {
-        organization_id: id,
-      });
-      return col.isReady();
-    });
-    if (allReady) {
-      setIsLoading(false);
-    }
-
-    return () => {
-      subscriptions.forEach((s) => s.unsubscribe());
-    };
-  }, [enabled, isSignedIn, orgIds]);
-
-  return { data: projects, isLoading };
+  return { data, isLoading };
 }

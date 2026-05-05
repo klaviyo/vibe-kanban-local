@@ -13,7 +13,8 @@ use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListIssueTagsQuery {
-    pub issue_id: Uuid,
+    pub issue_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
 }
 
 pub(super) fn router() -> Router<DeploymentImpl> {
@@ -30,7 +31,15 @@ async fn list_issue_tags(
     Query(query): Query<ListIssueTagsQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssueTagsResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    let response = client.list_issue_tags(query.issue_id).await?;
+    let response = match (query.project_id, query.issue_id) {
+        (Some(project_id), _) => client.list_project_issue_tags(project_id).await?,
+        (None, Some(issue_id)) => client.list_issue_tags(issue_id).await?,
+        (None, None) => {
+            return Err(ApiError::BadRequest(
+                "issue_id or project_id query parameter is required".into(),
+            ));
+        }
+    };
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
