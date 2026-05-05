@@ -56,11 +56,10 @@ describe('resolveLocalShapeRoute', () => {
   });
 
   it('returns null for shapes without a local counterpart', () => {
+    // `unknown_table` has no entry in LOCAL_ROUTES_BY_TABLE — must fall
+    // through to the remote fallback URL so the cutover doesn't 404.
     expect(
-      resolveLocalShapeRoute(defineShape('notifications', ['user_id']))
-    ).toBeNull();
-    expect(
-      resolveLocalShapeRoute(defineShape('issue_comments', ['issue_id']))
+      resolveLocalShapeRoute(defineShape('unknown_table', ['user_id']))
     ).toBeNull();
   });
 
@@ -110,6 +109,73 @@ describe('resolveLocalShapeRoute', () => {
     );
     expect(route).toEqual({
       path: '/api/remote/issue-assignees',
+      query: ['issue_id'],
+    });
+  });
+
+  it('maps the user-keyed notifications shape to /api/remote/notifications', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('notifications', ['user_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/notifications',
+      query: ['user_id'],
+    });
+  });
+
+  it('maps organization_member_metadata to /api/remote/organization-member-metadata (kebab-case)', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('organization_member_metadata', ['organization_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/organization-member-metadata',
+      query: ['organization_id'],
+    });
+  });
+
+  it('maps the org-keyed users shape to /api/remote/users', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('users', ['organization_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/users',
+      query: ['organization_id'],
+    });
+  });
+
+  it('maps both project- and issue-keyed issue_followers to /api/remote/issue-followers', () => {
+    const projectRoute = resolveLocalShapeRoute(
+      defineShape('issue_followers', ['project_id'])
+    );
+    expect(projectRoute).toEqual({
+      path: '/api/remote/issue-followers',
+      query: ['project_id'],
+    });
+    const issueRoute = resolveLocalShapeRoute(
+      defineShape('issue_followers', ['issue_id'])
+    );
+    expect(issueRoute).toEqual({
+      path: '/api/remote/issue-followers',
+      query: ['issue_id'],
+    });
+  });
+
+  it('maps the issue-keyed issue_comments shape to /api/remote/issue-comments', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('issue_comments', ['issue_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/issue-comments',
+      query: ['issue_id'],
+    });
+  });
+
+  it('maps issue_comment_reactions to /api/remote/issue-comment-reactions (kebab-case)', () => {
+    const route = resolveLocalShapeRoute(
+      defineShape('issue_comment_reactions', ['issue_id'])
+    );
+    expect(route).toEqual({
+      path: '/api/remote/issue-comment-reactions',
       query: ['issue_id'],
     });
   });

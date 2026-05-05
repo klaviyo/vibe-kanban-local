@@ -87,24 +87,27 @@ describe('fetchShapeRows', () => {
   });
 
   it('falls back to the remote fallback URL via makeRequest when no local route is mapped', async () => {
+    // Use a synthetic table that has no entry in LOCAL_ROUTES_BY_TABLE so
+    // the fallback path is exercised independent of which tables happen to
+    // be locally routed at any given point in the cutover.
     mockedMakeRequest.mockResolvedValueOnce(
       jsonResponse({
-        notifications: [{ id: 'n1' }],
+        unknown_table: [{ id: 'x1' }],
       })
     );
     const shape = defineShape<{ id: string }>(
-      'notifications',
+      'unknown_table',
       ['user_id'] as const,
-      '/v1/fallback/notifications'
+      '/v1/fallback/unknown_table'
     );
 
     const rows = await fetchShapeRows(shape, { user_id: 'u1' });
 
-    expect(rows).toEqual([{ id: 'n1' }]);
+    expect(rows).toEqual([{ id: 'x1' }]);
     expect(mockedMakeLocalApiRequest).not.toHaveBeenCalled();
     expect(mockedMakeRequest).toHaveBeenCalledTimes(1);
     const [path] = mockedMakeRequest.mock.calls[0];
-    expect(path).toBe('/v1/fallback/notifications?user_id=u1');
+    expect(path).toBe('/v1/fallback/unknown_table?user_id=u1');
   });
 
   it('throws when the response is not ok', async () => {
