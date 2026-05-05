@@ -5,10 +5,14 @@ use sqlx::{
     migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions},
 };
-use utils::assets::asset_dir;
+use utils::assets::db_v3_path;
 
 pub mod identity_seeder;
 pub mod models;
+
+fn database_url() -> String {
+    format!("sqlite://{}", db_v3_path().to_string_lossy())
+}
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     use std::collections::HashSet;
@@ -75,11 +79,7 @@ pub struct DBService {
 
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.v2.sqlite").to_string_lossy()
-        );
-        let options = SqliteConnectOptions::from_str(&database_url)?
+        let options = SqliteConnectOptions::from_str(&database_url())?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Delete);
         let pool = SqlitePool::connect_with(options).await?;
@@ -88,11 +88,7 @@ impl DBService {
     }
 
     pub async fn new_migration_pool() -> Result<Pool<Sqlite>, Error> {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.v2.sqlite").to_string_lossy()
-        );
-        let options = SqliteConnectOptions::from_str(&database_url)?
+        let options = SqliteConnectOptions::from_str(&database_url())?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Delete)
             .disable_statement_logging();
@@ -126,11 +122,7 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.v2.sqlite").to_string_lossy()
-        );
-        let options = SqliteConnectOptions::from_str(&database_url)?
+        let options = SqliteConnectOptions::from_str(&database_url())?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Delete);
 
