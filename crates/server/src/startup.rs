@@ -478,7 +478,7 @@ mod tests {
 
     use super::*;
 
-    async fn open_pool(path: &PathBuf) -> SqlitePool {
+    async fn open_pool(path: &Path) -> SqlitePool {
         let url = format!("sqlite://{}", path.to_string_lossy());
         let opts = SqliteConnectOptions::from_str(&url)
             .unwrap()

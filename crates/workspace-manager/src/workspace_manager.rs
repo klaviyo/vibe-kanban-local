@@ -357,10 +357,7 @@ impl WorkspaceManager {
             match res {
                 Ok(Ok(wt)) => created_worktrees.push(wt),
                 Ok(Err((name, err))) => {
-                    error!(
-                        "Failed to create worktree for repo '{}': {}",
-                        name, err
-                    );
+                    error!("Failed to create worktree for repo '{}': {}", name, err);
                     if first_error.is_none() {
                         first_error = Some((name, err));
                     }

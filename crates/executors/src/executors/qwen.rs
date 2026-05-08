@@ -45,8 +45,7 @@ impl QwenCode {
         // `--prefer-offline`: with a pinned version, npm's cache key is the
         // exact tarball, so once it's local there's nothing the registry can
         // tell us. Skips the per-spawn metadata revalidation HEAD request.
-        let mut builder =
-            CommandBuilder::new("npx --prefer-offline -y @qwen-code/qwen-code@0.9.1");
+        let mut builder = CommandBuilder::new("npx --prefer-offline -y @qwen-code/qwen-code@0.9.1");
 
         if let Some(model) = &self.model {
             builder = builder.extend_params(["--model", model.as_str()]);

@@ -2,8 +2,7 @@ use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, middleware::origin::validate_origin, routes,
-    startup::perform_cleanup_actions,
+    DeploymentImpl, middleware::origin::validate_origin, routes, startup::perform_cleanup_actions,
 };
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
@@ -236,7 +235,7 @@ pub async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use std::{
-        path::PathBuf,
+        path::{Path, PathBuf},
         str::FromStr,
         sync::Arc,
         time::{Duration, Instant},
@@ -246,7 +245,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::Notify;
 
-    fn journal_path(db_path: &PathBuf) -> PathBuf {
+    fn journal_path(db_path: &Path) -> PathBuf {
         let mut name = db_path.file_name().unwrap().to_os_string();
         name.push("-journal");
         db_path.with_file_name(name)

@@ -51,9 +51,7 @@ async fn list_pull_requests(
 ) -> Result<ResponseJson<ApiResponse<ListPullRequestsResponse>>, ApiError> {
     let pool = &deployment.db().pool;
     let pull_requests = match (query.issue_id, query.project_id) {
-        (Some(issue_id), None) => {
-            PullRequestIssueRepository::list_by_issue(pool, issue_id).await?
-        }
+        (Some(issue_id), None) => PullRequestIssueRepository::list_by_issue(pool, issue_id).await?,
         (None, Some(project_id)) => {
             PullRequestIssueRepository::list_by_project(pool, project_id).await?
         }

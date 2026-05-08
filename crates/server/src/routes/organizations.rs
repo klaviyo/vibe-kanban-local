@@ -116,7 +116,9 @@ async fn create_organization(
     let pool = &deployment.db().pool;
     let user = synthetic::local_user(&deployment).await?;
 
-    let org = Organization::create(pool, Uuid::new_v4(), &request).await?.data;
+    let org = Organization::create(pool, Uuid::new_v4(), &request)
+        .await?
+        .data;
 
     OrganizationMember::create(
         pool,

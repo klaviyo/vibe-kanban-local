@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -60,7 +60,7 @@ pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
 /// Preserve the v8 file as an audit artifact when about to migrate v8 → v9.
 /// The v8 file is the per-engineer Config rollback path, independent of any
 /// database rollback.
-fn backup_v8_audit_artifact_if_needed(config_path: &PathBuf, raw_config: &str) {
+fn backup_v8_audit_artifact_if_needed(config_path: &Path, raw_config: &str) {
     if !is_v8_raw_config(raw_config) {
         return;
     }
@@ -86,7 +86,7 @@ fn backup_v8_audit_artifact_if_needed(config_path: &PathBuf, raw_config: &str) {
 /// Build the audit artifact path by appending the suffix so the original
 /// filename (including its extension) is preserved — e.g. `config.json`
 /// becomes `config.json.v8.bak`.
-fn audit_artifact_path(config_path: &PathBuf) -> PathBuf {
+fn audit_artifact_path(config_path: &Path) -> PathBuf {
     let mut path = config_path.as_os_str().to_owned();
     path.push(".v8.bak");
     PathBuf::from(path)

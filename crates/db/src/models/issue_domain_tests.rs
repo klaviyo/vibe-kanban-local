@@ -3,8 +3,6 @@
 //! Exercises happy-path CRUD for every issue-domain entity and FK-violation
 //! negative paths where the migration's foreign key constraints define one.
 
-#![cfg(test)]
-
 use std::str::FromStr;
 
 use api_types::{
@@ -1141,8 +1139,7 @@ async fn issue_follower_find_by_issue_orders_by_id() {
             },
         )
         .await
-        .unwrap()
-        .data;
+        .unwrap();
     }
 
     let listed: Vec<Uuid> = IssueFollower::find_by_issue(&pool, issue.id)
@@ -1215,8 +1212,7 @@ async fn issue_tag_find_by_issue_orders_by_id() {
             },
         )
         .await
-        .unwrap()
-        .data;
+        .unwrap();
     }
 
     let listed: Vec<Uuid> = IssueTag::find_by_issue(&pool, issue.id)
@@ -2164,8 +2160,7 @@ async fn workspace_issue_link_replace_for_workspace_relinks_singular() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     // Relink to a different issue using replace_for_workspace.
     let replaced = WorkspaceIssueLink::replace_for_workspace(
@@ -2203,8 +2198,7 @@ async fn member_remove_with_guardrails_blocks_self_removal() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     let result = OrganizationMember::remove_with_guardrails(
         &pool,
@@ -2259,8 +2253,7 @@ async fn member_remove_with_guardrails_blocks_personal_org() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2270,8 +2263,7 @@ async fn member_remove_with_guardrails_blocks_personal_org() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     let result = OrganizationMember::remove_with_guardrails(
         &pool,
@@ -2313,8 +2305,7 @@ async fn member_remove_with_guardrails_blocks_last_admin() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2324,8 +2315,7 @@ async fn member_remove_with_guardrails_blocks_last_admin() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     // The acting user is fx.user (a member, not the target). Removing the
     // sole admin must be rejected so the org is never left admin-less.
@@ -2356,8 +2346,7 @@ async fn member_update_role_blocks_self_demotion_and_last_admin() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     // Self-demotion: blocked even if there were other admins.
     let result = OrganizationMember::update_role_with_guardrails(
@@ -2394,8 +2383,7 @@ async fn member_update_role_blocks_self_demotion_and_last_admin() {
         },
     )
     .await
-    .unwrap()
-    .data;
+    .unwrap();
 
     // Acting user demotes the *other* admin; now the original is the last
     // admin — second demotion attempt must be rejected.

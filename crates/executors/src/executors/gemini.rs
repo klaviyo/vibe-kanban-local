@@ -49,8 +49,7 @@ impl Gemini {
         // `--prefer-offline`: with a pinned version, npm's cache key is the
         // exact tarball, so once it's local there's nothing the registry can
         // tell us. Skips the per-spawn metadata revalidation HEAD request.
-        let mut builder =
-            CommandBuilder::new("npx --prefer-offline -y @google/gemini-cli@0.29.3");
+        let mut builder = CommandBuilder::new("npx --prefer-offline -y @google/gemini-cli@0.29.3");
 
         if let Some(model) = &self.model {
             builder = builder.extend_params(["--model", model.as_str()]);

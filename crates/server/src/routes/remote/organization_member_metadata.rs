@@ -25,12 +25,7 @@
 //! describe and the wrapper shape is the only contract that matters
 //! to `extractRows`.
 
-use axum::{
-    Router,
-    extract::Query,
-    response::Json as ResponseJson,
-    routing::get,
-};
+use axum::{Router, extract::Query, response::Json as ResponseJson, routing::get};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utils::response::ApiResponse;
@@ -78,8 +73,9 @@ async fn list_organization_member_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn empty_organization_member_metadata_envelope_shape() {

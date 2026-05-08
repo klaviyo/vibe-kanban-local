@@ -211,15 +211,15 @@ async fn get_workspace_by_local_id(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn list_envelope_is_table_keyed() {
-        let envelope: ApiResponse<WorkspacesResponse> =
-            ApiResponse::success(WorkspacesResponse {
-                workspaces: Vec::new(),
-            });
+        let envelope: ApiResponse<WorkspacesResponse> = ApiResponse::success(WorkspacesResponse {
+            workspaces: Vec::new(),
+        });
         let body = serde_json::to_value(&envelope).expect("serialize envelope");
         assert_eq!(
             body,
