@@ -1179,4 +1179,192 @@ mod tests {
             }
         }
     }
+
+    /// Error-propagation coverage for `fetch_issue_relationships_resolved`.
+    ///
+    /// This site is the one of the five sub-resolution sites in this file
+    /// that fails closed (the other four — tags, sub-issues, pull requests,
+    /// project issues — fail open by design). Returning an empty array on
+    /// inner-HTTP failure here would let vk-conductor mistake an inbound
+    /// block for a clear signal and self-resolve, producing a self-deadlock.
+    /// These tests pin the error-surfacing contract so it cannot regress.
+    mod relationship_fetch_errors {
+        use std::sync::Arc;
+
+        use rmcp::handler::server::tool::ToolRouter;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use uuid::Uuid;
+
+        use super::super::McpServer;
+        use crate::task_server::McpMode;
+
+        type MockHandler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync + 'static>;
+
+        /// Spawns a minimal HTTP/1.1 server bound to a random localhost port,
+        /// dispatching each request to `handler` (which receives the request
+        /// path and returns an HTTP body). Every response is sent with
+        /// `Connection: close`. Returns the base URL the test should point
+        /// `McpServer` at.
+        async fn spawn_mock_server(handler: MockHandler) -> String {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                loop {
+                    let (mut socket, _) = match listener.accept().await {
+                        Ok(pair) => pair,
+                        Err(_) => return,
+                    };
+                    let handler = Arc::clone(&handler);
+                    tokio::spawn(async move {
+                        let mut buf = [0u8; 4096];
+                        let n = match socket.read(&mut buf).await {
+                            Ok(n) if n > 0 => n,
+                            _ => return,
+                        };
+                        let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
+                        // Request line is "METHOD PATH HTTP/1.1"; pull the
+                        // path so the handler can route on it.
+                        let path = req.split_whitespace().nth(1).unwrap_or("/");
+                        let (status, body) = handler(path);
+                        let response = format!(
+                            "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            status,
+                            body.len(),
+                            body
+                        );
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        let _ = socket.shutdown().await;
+                    });
+                }
+            });
+            format!("http://127.0.0.1:{}", port)
+        }
+
+        fn server(base_url: &str) -> McpServer {
+            McpServer {
+                client: reqwest::Client::new(),
+                base_url: base_url.to_string(),
+                tool_router: ToolRouter::default(),
+                context: None,
+                mode: McpMode::Global,
+            }
+        }
+
+        #[tokio::test]
+        async fn connection_refusal_propagates_as_tool_error() {
+            // Bind a listener to grab a free port, then drop it so the OS
+            // refuses subsequent connections on that port. Faster and more
+            // deterministic than waiting for a request timeout.
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+
+            let server = server(&format!("http://127.0.0.1:{}", port));
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await;
+
+            let err = result.expect_err("connection refusal must surface as ToolError");
+            assert!(
+                err.message.contains("connect"),
+                "expected connect-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn malformed_relationships_json_propagates_as_tool_error() {
+            // First sub-fetch returns 200 with an unparseable body. The
+            // upstream `send_json` surfaces this as a parse-level ToolError;
+            // the resolver must propagate rather than fail open.
+            let url = spawn_mock_server(Arc::new(|path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (200, "not valid json {{".to_string())
+                } else {
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await;
+
+            let err = result.expect_err("malformed relationships JSON must surface as ToolError");
+            assert!(
+                err.message.contains("parse"),
+                "expected parse-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn malformed_project_issues_json_propagates_as_tool_error() {
+            // Relationships sub-fetch succeeds (one row, anchoring the
+            // request at the queried issue so projection is well-defined),
+            // then project-issues sub-fetch returns malformed JSON. The
+            // outer resolver must surface this rather than degrade silently
+            // to empty `related_simple_id` strings.
+            let queried = Uuid::new_v4();
+            let other = Uuid::new_v4();
+            let row_id = Uuid::new_v4();
+            let valid_relationships = format!(
+                r#"{{"success":true,"data":{{"issue_relationships":[{{"id":"{}","issue_id":"{}","related_issue_id":"{}","relationship_type":"blocking","created_at":"2026-05-07T00:00:00Z"}}]}}}}"#,
+                row_id, queried, other
+            );
+
+            let url = spawn_mock_server(Arc::new(move |path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (200, valid_relationships.clone())
+                } else if path.starts_with("/api/remote/issues") {
+                    (200, "{not json".to_string())
+                } else {
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), queried)
+                .await;
+
+            let err = result.expect_err("malformed project-issues JSON must surface as ToolError");
+            assert!(
+                err.message.contains("parse"),
+                "expected parse-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn empty_relationships_returns_ok_empty() {
+            // Genuine zero-participation: the relationships endpoint returns
+            // an empty array. The resolver must short-circuit without
+            // touching the project-issues endpoint and return Ok(empty).
+            let url = spawn_mock_server(Arc::new(|path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (
+                        200,
+                        r#"{"success":true,"data":{"issue_relationships":[]}}"#.to_string(),
+                    )
+                } else {
+                    // If the resolver calls project-issues here it has
+                    // already failed the contract; return an error so the
+                    // test fails loudly instead of silently passing.
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await
+                .expect("zero participation must succeed");
+
+            assert!(result.is_empty());
+        }
+    }
 }
