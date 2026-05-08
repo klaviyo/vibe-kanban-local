@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use api_types::{
-    CreateIssueRequest, Issue, IssuePriority, IssueRelationshipType, IssueSortField,
-    ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse,
+    CreateIssueRequest, Issue, IssuePriority, IssueRelationship, IssueRelationshipType,
+    IssueSortField, ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse,
     ListPullRequestsResponse, ListTagsResponse, MutationResponse, PullRequestStatus,
     SearchIssuesRequest, SortDirection, UpdateIssueRequest,
 };
@@ -126,16 +126,28 @@ struct McpTagSummary {
     color: String,
 }
 
-#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Serialize, PartialEq, Eq, schemars::JsonSchema)]
 struct McpRelationshipSummary {
     #[schemars(description = "The relationship ID (use this to delete)")]
     id: String,
-    #[schemars(description = "The related issue ID")]
+    #[schemars(
+        description = "The queried issue's ID — the anchor of the per-issue read. The remaining fields are projected from this issue's point of view."
+    )]
+    issue_id: String,
+    #[schemars(
+        description = "The OTHER side of the relationship from the queried issue's POV. For outbound rows this is the row's raw `related_issue_id`; for inbound rows it is swapped to the row's raw `issue_id` so this field always points away from the queried issue."
+    )]
     related_issue_id: String,
-    #[schemars(description = "The related issue's simple ID (e.g. 'PROJ-42')")]
+    #[schemars(
+        description = "The other issue's simple ID (e.g. 'PROJ-42'), normalized to the same side as `related_issue_id`. Empty if the other issue is in a different project than the queried issue (per-project simple-id resolution does not cross projects)."
+    )]
     related_simple_id: String,
     #[schemars(description = "Relationship type: blocking, related, or has_duplicate")]
     relationship_type: String,
+    #[schemars(
+        description = "Direction of the relationship from the queried issue's POV: 'outbound' when the queried issue is the source side of the row, 'inbound' when it is the target side."
+    )]
+    direction: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -476,7 +488,10 @@ impl McpServer {
         };
 
         let pull_requests = self.fetch_pull_requests(issue_id).await;
-        let details = self.issue_to_details(&issue, pull_requests).await;
+        let details = match self.issue_to_details(&issue, pull_requests).await {
+            Ok(details) => details,
+            Err(e) => return Ok(McpServer::tool_error(e)),
+        };
         McpServer::success(&McpGetIssueResponse { issue: details })
     }
 
@@ -551,7 +566,10 @@ impl McpServer {
             };
 
         let pull_requests = self.fetch_pull_requests(issue_id).await;
-        let details = self.issue_to_details(&response.data, pull_requests).await;
+        let details = match self.issue_to_details(&response.data, pull_requests).await {
+            Ok(details) => details,
+            Err(e) => return Ok(McpServer::tool_error(e)),
+        };
         McpServer::success(&McpUpdateIssueResponse { issue: details })
     }
 
@@ -649,7 +667,7 @@ impl McpServer {
         &self,
         issue: &Issue,
         pull_requests: ListPullRequestsResponse,
-    ) -> IssueDetails {
+    ) -> Result<IssueDetails, ToolError> {
         let status = self
             .resolve_status_name(issue.project_id, issue.status_id)
             .await;
@@ -660,11 +678,11 @@ impl McpServer {
 
         let relationships = self
             .fetch_issue_relationships_resolved(issue.project_id, issue.id)
-            .await;
+            .await?;
 
         let sub_issues = self.fetch_sub_issues(issue.project_id, issue.id).await;
 
-        IssueDetails {
+        Ok(IssueDetails {
             id: issue.id.to_string(),
             title: issue.title.clone(),
             simple_id: issue.simple_id.clone(),
@@ -695,7 +713,7 @@ impl McpServer {
             tags,
             relationships,
             sub_issues,
-        }
+        })
     }
 
     async fn fetch_pull_requests(&self, issue_id: Uuid) -> ListPullRequestsResponse {
@@ -745,62 +763,104 @@ impl McpServer {
             .collect()
     }
 
-    /// Fetches relationships for an issue, resolving related issue simple_ids.
+    /// Fetches relationships for an issue and projects each row from the
+    /// queried issue's POV: direction is computed per row and the
+    /// "other ticket" fields (`related_issue_id`, `related_simple_id`)
+    /// are normalized so they always point away from the queried issue.
+    ///
+    /// Unlike the four sibling sub-resolution sites in this file
+    /// (tags, sub-issues, pull requests, project issues), failures here
+    /// are propagated as `ToolError` rather than fail-open. Returning an
+    /// empty array on inner-HTTP failure lets vk-conductor mistake an
+    /// inbound block for a clear signal and self-resolve, which produces
+    /// a self-deadlock; surfacing the error keeps the orchestrator honest.
     async fn fetch_issue_relationships_resolved(
         &self,
         project_id: Uuid,
         issue_id: Uuid,
-    ) -> Vec<McpRelationshipSummary> {
+    ) -> Result<Vec<McpRelationshipSummary>, ToolError> {
         let rel_url = self.url(&format!(
             "/api/remote/issue-relationships?issue_id={}",
             issue_id
         ));
-        let response: ListIssueRelationshipsResponse =
-            match self.send_json(self.client.get(&rel_url)).await {
-                Ok(r) => r,
-                Err(_) => return Vec::new(),
-            };
+        let response: ListIssueRelationshipsResponse = self
+            .send_json(self.client.get(&rel_url))
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    %issue_id,
+                    error = %e,
+                    "failed to fetch issue relationships"
+                );
+                e
+            })?;
 
         if response.issue_relationships.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let issues_url = self.url(&format!("/api/remote/issues?project_id={}", project_id));
         let issues_response: api_types::ListIssuesResponse = self
             .send_json(self.client.get(&issues_url))
             .await
-            .unwrap_or(api_types::ListIssuesResponse {
-                issues: Vec::new(),
-                total_count: 0,
-                limit: 0,
-                offset: 0,
-            });
+            .map_err(|e| {
+                tracing::warn!(
+                    %issue_id,
+                    %project_id,
+                    error = %e,
+                    "failed to fetch project issues for relationship simple_id resolution"
+                );
+                e
+            })?;
         let simple_id_map: HashMap<Uuid, &str> = issues_response
             .issues
             .iter()
             .map(|i| (i.id, i.simple_id.as_str()))
             .collect();
 
-        response
+        Ok(response
             .issue_relationships
-            .into_iter()
-            .map(|r| {
-                let related_simple_id = simple_id_map
-                    .get(&r.related_issue_id)
-                    .unwrap_or(&"")
-                    .to_string();
-                McpRelationshipSummary {
-                    id: r.id.to_string(),
-                    related_issue_id: r.related_issue_id.to_string(),
-                    related_simple_id,
-                    relationship_type: match r.relationship_type {
-                        IssueRelationshipType::Blocking => "blocking".to_string(),
-                        IssueRelationshipType::Related => "related".to_string(),
-                        IssueRelationshipType::HasDuplicate => "has_duplicate".to_string(),
-                    },
-                }
-            })
-            .collect()
+            .iter()
+            .map(|r| Self::project_relationship(issue_id, r, &simple_id_map))
+            .collect())
+    }
+
+    /// Pure projection: produces an `McpRelationshipSummary` for a single
+    /// raw row, viewed from `queried_issue_id`'s POV.
+    ///
+    /// For inbound rows (`row.related_issue_id == queried_issue_id`), the
+    /// "other ticket" fields are populated from the row's `issue_id`
+    /// instead of `related_issue_id`. Getting this swap wrong
+    /// causes vk-conductor to self-dispatch on inbound blocks
+    /// (self-deadlock), so the inbound case is covered by direct unit
+    /// assertions below.
+    fn project_relationship(
+        queried_issue_id: Uuid,
+        row: &IssueRelationship,
+        simple_id_map: &HashMap<Uuid, &str>,
+    ) -> McpRelationshipSummary {
+        let (other_issue_id, direction) = if row.issue_id == queried_issue_id {
+            (row.related_issue_id, "outbound")
+        } else {
+            (row.issue_id, "inbound")
+        };
+        let related_simple_id = simple_id_map
+            .get(&other_issue_id)
+            .copied()
+            .unwrap_or("")
+            .to_string();
+        McpRelationshipSummary {
+            id: row.id.to_string(),
+            issue_id: queried_issue_id.to_string(),
+            related_issue_id: other_issue_id.to_string(),
+            related_simple_id,
+            relationship_type: match row.relationship_type {
+                IssueRelationshipType::Blocking => "blocking".to_string(),
+                IssueRelationshipType::Related => "related".to_string(),
+                IssueRelationshipType::HasDuplicate => "has_duplicate".to_string(),
+            },
+            direction: direction.to_string(),
+        }
     }
 
     /// Fetches sub-issues for a given parent issue.
@@ -974,5 +1034,354 @@ mod tests {
             McpServer::resolve_tag_filters(Some(tag_id), Some(vec![other_tag_id, tag_id])),
             (Some(tag_id), None, false)
         );
+    }
+
+    mod project_relationship {
+        use std::collections::HashMap;
+
+        use api_types::{IssueRelationship, IssueRelationshipType};
+        use chrono::Utc;
+        use uuid::Uuid;
+
+        use super::super::{McpRelationshipSummary, McpServer};
+
+        fn row(
+            issue_id: Uuid,
+            related_issue_id: Uuid,
+            relationship_type: IssueRelationshipType,
+        ) -> IssueRelationship {
+            IssueRelationship {
+                id: Uuid::new_v4(),
+                issue_id,
+                related_issue_id,
+                relationship_type,
+                created_at: Utc::now(),
+            }
+        }
+
+        #[test]
+        fn outbound_row_keeps_related_side_as_other_ticket() {
+            let queried = Uuid::new_v4();
+            let other = Uuid::new_v4();
+            let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
+            simple_id_map.insert(other, "PROJ-99");
+            let r = row(queried, other, IssueRelationshipType::Blocking);
+
+            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+
+            assert_eq!(projected.issue_id, queried.to_string());
+            assert_eq!(projected.related_issue_id, other.to_string());
+            assert_eq!(projected.related_simple_id, "PROJ-99");
+            assert_eq!(projected.direction, "outbound");
+            assert_eq!(projected.relationship_type, "blocking");
+        }
+
+        // Load-bearing: getting the inbound swap wrong causes vk-conductor
+        // to self-resolve on inbound blocks (deadlock or self-dispatch).
+        // The "other ticket" field MUST point at the row's `issue_id`,
+        // never at the queried issue.
+        #[test]
+        fn inbound_row_swaps_to_row_issue_id_as_other_ticket() {
+            let queried = Uuid::new_v4();
+            let source = Uuid::new_v4();
+            let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
+            simple_id_map.insert(source, "PROJ-7");
+            // Row stored as (source -> queried). When read from `queried`'s
+            // POV the projection must invert: other ticket = `source`.
+            let r = row(source, queried, IssueRelationshipType::Blocking);
+
+            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+
+            assert_eq!(projected.issue_id, queried.to_string());
+            assert_eq!(
+                projected.related_issue_id,
+                source.to_string(),
+                "inbound projection must point at the row's issue_id, never at the queried issue"
+            );
+            assert_ne!(
+                projected.related_issue_id,
+                queried.to_string(),
+                "the 'other ticket' field must never equal the queried issue"
+            );
+            assert_eq!(projected.related_simple_id, "PROJ-7");
+            assert_eq!(projected.direction, "inbound");
+        }
+
+        #[test]
+        fn inbound_cross_project_yields_empty_simple_id() {
+            // Inbound row whose source side lives in a different project:
+            // simple_id_map (built from the queried issue's project) won't
+            // contain the source id, so `related_simple_id` falls back to
+            // empty. The id and direction fields stay correct.
+            let queried = Uuid::new_v4();
+            let cross_project_source = Uuid::new_v4();
+            let simple_id_map: HashMap<Uuid, &str> = HashMap::new();
+            let r = row(
+                cross_project_source,
+                queried,
+                IssueRelationshipType::Related,
+            );
+
+            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+
+            assert_eq!(projected.related_issue_id, cross_project_source.to_string());
+            assert_eq!(projected.related_simple_id, "");
+            assert_eq!(projected.direction, "inbound");
+        }
+
+        #[test]
+        fn mixed_set_projects_each_row_independently_from_queried_pov() {
+            let queried = Uuid::new_v4();
+            let outbound_target = Uuid::new_v4();
+            let inbound_source = Uuid::new_v4();
+            let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
+            simple_id_map.insert(outbound_target, "PROJ-1");
+            simple_id_map.insert(inbound_source, "PROJ-2");
+
+            let outbound = row(queried, outbound_target, IssueRelationshipType::Blocking);
+            let inbound = row(inbound_source, queried, IssueRelationshipType::Related);
+
+            let projected: Vec<McpRelationshipSummary> = [&outbound, &inbound]
+                .into_iter()
+                .map(|r| McpServer::project_relationship(queried, r, &simple_id_map))
+                .collect();
+
+            assert_eq!(projected[0].direction, "outbound");
+            assert_eq!(projected[0].related_issue_id, outbound_target.to_string());
+            assert_eq!(projected[0].related_simple_id, "PROJ-1");
+            assert_eq!(projected[1].direction, "inbound");
+            assert_eq!(projected[1].related_issue_id, inbound_source.to_string());
+            assert_eq!(projected[1].related_simple_id, "PROJ-2");
+            // Both rows always anchor `issue_id` on the queried issue,
+            // regardless of which side it lives on in the raw row.
+            assert_eq!(projected[0].issue_id, queried.to_string());
+            assert_eq!(projected[1].issue_id, queried.to_string());
+        }
+
+        #[test]
+        fn relationship_type_label_round_trips_through_projection() {
+            let queried = Uuid::new_v4();
+            let other = Uuid::new_v4();
+            let simple_id_map: HashMap<Uuid, &str> = HashMap::new();
+
+            let cases = [
+                (IssueRelationshipType::Blocking, "blocking"),
+                (IssueRelationshipType::Related, "related"),
+                (IssueRelationshipType::HasDuplicate, "has_duplicate"),
+            ];
+            for (variant, expected) in cases {
+                let projected = McpServer::project_relationship(
+                    queried,
+                    &row(queried, other, variant),
+                    &simple_id_map,
+                );
+                assert_eq!(projected.relationship_type, expected);
+            }
+        }
+    }
+
+    /// Error-propagation coverage for `fetch_issue_relationships_resolved`.
+    ///
+    /// This site is the one of the five sub-resolution sites in this file
+    /// that fails closed (the other four — tags, sub-issues, pull requests,
+    /// project issues — fail open by design). Returning an empty array on
+    /// inner-HTTP failure here would let vk-conductor mistake an inbound
+    /// block for a clear signal and self-resolve, producing a self-deadlock.
+    /// These tests pin the error-surfacing contract so it cannot regress.
+    mod relationship_fetch_errors {
+        use std::sync::{Arc, Once};
+
+        use rmcp::handler::server::tool::ToolRouter;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use uuid::Uuid;
+
+        use super::super::McpServer;
+        use crate::task_server::McpMode;
+
+        type MockHandler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync + 'static>;
+
+        // `cargo nextest` runs each test in its own process, so the default
+        // rustls crypto provider must be installed before the first
+        // `reqwest::Client` is built. Without this, building the client (or
+        // its first TLS handshake) panics. Under `cargo test -p mcp --lib`
+        // the lib test harness shares one process across modules, so a
+        // sibling helper (e.g. `tools/mod.rs`) may have installed the same
+        // provider already — `install_default()` returns `Err` in that case,
+        // which is exactly the state we want, so swallow the result.
+        static RUSTLS_PROVIDER: Once = Once::new();
+
+        fn install_rustls_provider() {
+            RUSTLS_PROVIDER.call_once(|| {
+                let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+            });
+        }
+
+        /// Spawns a minimal HTTP/1.1 server bound to a random localhost port,
+        /// dispatching each request to `handler` (which receives the request
+        /// path and returns an HTTP body). Every response is sent with
+        /// `Connection: close`. Returns the base URL the test should point
+        /// `McpServer` at.
+        async fn spawn_mock_server(handler: MockHandler) -> String {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                loop {
+                    let (mut socket, _) = match listener.accept().await {
+                        Ok(pair) => pair,
+                        Err(_) => return,
+                    };
+                    let handler = Arc::clone(&handler);
+                    tokio::spawn(async move {
+                        let mut buf = [0u8; 4096];
+                        let n = match socket.read(&mut buf).await {
+                            Ok(n) if n > 0 => n,
+                            _ => return,
+                        };
+                        let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
+                        // Request line is "METHOD PATH HTTP/1.1"; pull the
+                        // path so the handler can route on it.
+                        let path = req.split_whitespace().nth(1).unwrap_or("/");
+                        let (status, body) = handler(path);
+                        let response = format!(
+                            "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            status,
+                            body.len(),
+                            body
+                        );
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        let _ = socket.shutdown().await;
+                    });
+                }
+            });
+            format!("http://127.0.0.1:{}", port)
+        }
+
+        fn server(base_url: &str) -> McpServer {
+            install_rustls_provider();
+            McpServer {
+                client: reqwest::Client::new(),
+                base_url: base_url.to_string(),
+                tool_router: ToolRouter::default(),
+                context: None,
+                mode: McpMode::Global,
+            }
+        }
+
+        #[tokio::test]
+        async fn connection_refusal_propagates_as_tool_error() {
+            // Bind a listener to grab a free port, then drop it so the OS
+            // refuses subsequent connections on that port. Faster and more
+            // deterministic than waiting for a request timeout.
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+
+            let server = server(&format!("http://127.0.0.1:{}", port));
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await;
+
+            let err = result.expect_err("connection refusal must surface as ToolError");
+            assert!(
+                err.message.contains("connect"),
+                "expected connect-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn malformed_relationships_json_propagates_as_tool_error() {
+            // First sub-fetch returns 200 with an unparseable body. The
+            // upstream `send_json` surfaces this as a parse-level ToolError;
+            // the resolver must propagate rather than fail open.
+            let url = spawn_mock_server(Arc::new(|path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (200, "not valid json {{".to_string())
+                } else {
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await;
+
+            let err = result.expect_err("malformed relationships JSON must surface as ToolError");
+            assert!(
+                err.message.contains("parse"),
+                "expected parse-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn malformed_project_issues_json_propagates_as_tool_error() {
+            // Relationships sub-fetch succeeds (one row, anchoring the
+            // request at the queried issue so projection is well-defined),
+            // then project-issues sub-fetch returns malformed JSON. The
+            // outer resolver must surface this rather than degrade silently
+            // to empty `related_simple_id` strings.
+            let queried = Uuid::new_v4();
+            let other = Uuid::new_v4();
+            let row_id = Uuid::new_v4();
+            let valid_relationships = format!(
+                r#"{{"success":true,"data":{{"issue_relationships":[{{"id":"{}","issue_id":"{}","related_issue_id":"{}","relationship_type":"blocking","created_at":"2026-05-07T00:00:00Z"}}]}}}}"#,
+                row_id, queried, other
+            );
+
+            let url = spawn_mock_server(Arc::new(move |path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (200, valid_relationships.clone())
+                } else if path.starts_with("/api/remote/issues") {
+                    (200, "{not json".to_string())
+                } else {
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), queried)
+                .await;
+
+            let err = result.expect_err("malformed project-issues JSON must surface as ToolError");
+            assert!(
+                err.message.contains("parse"),
+                "expected parse-failure ToolError, got: {}",
+                err.message
+            );
+        }
+
+        #[tokio::test]
+        async fn empty_relationships_returns_ok_empty() {
+            // Genuine zero-participation: the relationships endpoint returns
+            // an empty array. The resolver must short-circuit without
+            // touching the project-issues endpoint and return Ok(empty).
+            let url = spawn_mock_server(Arc::new(|path: &str| {
+                if path.starts_with("/api/remote/issue-relationships") {
+                    (
+                        200,
+                        r#"{"success":true,"data":{"issue_relationships":[]}}"#.to_string(),
+                    )
+                } else {
+                    // If the resolver calls project-issues here it has
+                    // already failed the contract; return an error so the
+                    // test fails loudly instead of silently passing.
+                    (500, "{}".to_string())
+                }
+            }))
+            .await;
+
+            let server = server(&url);
+            let result = server
+                .fetch_issue_relationships_resolved(Uuid::new_v4(), Uuid::new_v4())
+                .await
+                .expect("zero participation must succeed");
+
+            assert!(result.is_empty());
+        }
     }
 }

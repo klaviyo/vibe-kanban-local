@@ -24,12 +24,7 @@
 //! envelope shape, however, is already correct and would not change.
 
 use api_types::Notification;
-use axum::{
-    Router,
-    extract::Query,
-    response::Json as ResponseJson,
-    routing::get,
-};
+use axum::{Router, extract::Query, response::Json as ResponseJson, routing::get};
 use serde::{Deserialize, Serialize};
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -72,8 +67,9 @@ async fn list_notifications(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn empty_notifications_envelope_shape() {

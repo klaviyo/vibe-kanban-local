@@ -64,6 +64,17 @@ impl IssueRelationship {
         .await
     }
 
+    /// Per-issue relationship read. Returns every row in which `issue_id`
+    /// participates as either the source side (`issue_id`) or the target
+    /// side (`related_issue_id`), ordered by creation time. Self-rows are
+    /// impossible at the storage layer (CHECK constraint
+    /// `issue_id != related_issue_id`), so the OR predicate cannot
+    /// double-count a single row. Direction-aware projection happens at
+    /// the MCP layer; storage returns the raw row shape unchanged.
+    ///
+    /// MUST stay in lockstep with the Postgres mirror in
+    /// `crates/remote/src/db/issue_relationships.rs::list_by_issue` —
+    /// no CI gate enforces parity.
     pub async fn find_by_issue(
         pool: &SqlitePool,
         issue_id: Uuid,
@@ -76,7 +87,7 @@ impl IssueRelationship {
                       relationship_type as "relationship_type!: IssueRelationshipType",
                       created_at        as "created_at!: DateTime<Utc>"
                FROM issue_relationships
-               WHERE issue_id = $1
+               WHERE issue_id = $1 OR related_issue_id = $1
                ORDER BY created_at ASC"#,
             issue_id,
         )

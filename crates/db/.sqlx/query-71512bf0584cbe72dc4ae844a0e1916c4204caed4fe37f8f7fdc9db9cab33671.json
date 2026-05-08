@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id                as \"id!: Uuid\",\n                      issue_id          as \"issue_id!: Uuid\",\n                      related_issue_id  as \"related_issue_id!: Uuid\",\n                      relationship_type as \"relationship_type!: IssueRelationshipType\",\n                      created_at        as \"created_at!: DateTime<Utc>\"\n               FROM issue_relationships\n               WHERE issue_id = $1\n               ORDER BY created_at ASC",
+  "query": "SELECT id                as \"id!: Uuid\",\n                      issue_id          as \"issue_id!: Uuid\",\n                      related_issue_id  as \"related_issue_id!: Uuid\",\n                      relationship_type as \"relationship_type!: IssueRelationshipType\",\n                      created_at        as \"created_at!: DateTime<Utc>\"\n               FROM issue_relationships\n               WHERE issue_id = $1 OR related_issue_id = $1\n               ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -40,5 +40,5 @@
       false
     ]
   },
-  "hash": "ef6c11ba4df81e57cfe551f153d895b5bda07600e634c6fac1f7d2eb975f5bdc"
+  "hash": "71512bf0584cbe72dc4ae844a0e1916c4204caed4fe37f8f7fdc9db9cab33671"
 }

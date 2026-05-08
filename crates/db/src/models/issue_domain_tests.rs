@@ -3,8 +3,6 @@
 //! Exercises happy-path CRUD for every issue-domain entity and FK-violation
 //! negative paths where the migration's foreign key constraints define one.
 
-#![cfg(test)]
-
 use std::str::FromStr;
 
 use api_types::{
@@ -632,6 +630,159 @@ async fn issue_relationship_rejects_self_link() {
 }
 
 #[tokio::test]
+async fn issue_relationship_find_by_issue_returns_outbound_rows() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let a = make_issue(&pool, &fx).await;
+    let b = make_issue(&pool, &fx).await;
+
+    let rel = IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: a.id,
+            related_issue_id: b.id,
+            relationship_type: WireRelType::Blocking,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+
+    let rows = IssueRelationship::find_by_issue(&pool, a.id).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, rel.id);
+    assert_eq!(rows[0].issue_id, a.id);
+    assert_eq!(rows[0].related_issue_id, b.id);
+}
+
+#[tokio::test]
+async fn issue_relationship_find_by_issue_returns_inbound_rows() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let a = make_issue(&pool, &fx).await;
+    let b = make_issue(&pool, &fx).await;
+
+    // Row anchored on `a` (source side). When queried from `b`'s POV,
+    // it must surface as an inbound row — `b` is the related side.
+    let rel = IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: a.id,
+            related_issue_id: b.id,
+            relationship_type: WireRelType::Blocking,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+
+    let rows = IssueRelationship::find_by_issue(&pool, b.id).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, rel.id);
+    // Storage layer returns the raw row shape — no normalization yet.
+    assert_eq!(rows[0].issue_id, a.id);
+    assert_eq!(rows[0].related_issue_id, b.id);
+}
+
+#[tokio::test]
+async fn issue_relationship_find_by_issue_returns_mixed_outbound_and_inbound_in_creation_order() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let a = make_issue(&pool, &fx).await;
+    let b = make_issue(&pool, &fx).await;
+    let c = make_issue(&pool, &fx).await;
+
+    let outbound = IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: a.id,
+            related_issue_id: b.id,
+            relationship_type: WireRelType::Blocking,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    // The default `created_at` is `datetime('now', 'subsec')`. Ensure the second
+    // row sorts strictly after the first regardless of clock granularity.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let inbound = IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: c.id,
+            related_issue_id: a.id,
+            relationship_type: WireRelType::Related,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+
+    let rows = IssueRelationship::find_by_issue(&pool, a.id).await.unwrap();
+    assert_eq!(rows.len(), 2, "expected both outbound and inbound rows");
+    assert_eq!(
+        rows[0].id, outbound.id,
+        "creation-time order: outbound first"
+    );
+    assert_eq!(
+        rows[1].id, inbound.id,
+        "creation-time order: inbound second"
+    );
+    // OR predicate cannot double-count: each row appears exactly once even
+    // though both have `a` on one side. (Schema CHECK constraint guarantees
+    // self-rows can't exist, so the OR cannot match the same row twice.)
+    let ids: std::collections::BTreeSet<Uuid> = rows.iter().map(|r| r.id).collect();
+    assert_eq!(ids.len(), 2);
+}
+
+#[tokio::test]
+async fn issue_relationship_find_by_issue_returns_empty_when_no_participation() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let a = make_issue(&pool, &fx).await;
+
+    let rows = IssueRelationship::find_by_issue(&pool, a.id).await.unwrap();
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+async fn issue_relationship_find_by_issue_excludes_unrelated_rows() {
+    // A row between two issues that the queried issue does not participate
+    // in must not surface in the per-issue read.
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let queried = make_issue(&pool, &fx).await;
+    let other_a = make_issue(&pool, &fx).await;
+    let other_b = make_issue(&pool, &fx).await;
+
+    IssueRelationship::create(
+        &pool,
+        Uuid::new_v4(),
+        &CreateIssueRelationshipRequest {
+            id: None,
+            issue_id: other_a.id,
+            related_issue_id: other_b.id,
+            relationship_type: WireRelType::Related,
+        },
+    )
+    .await
+    .unwrap();
+
+    let rows = IssueRelationship::find_by_issue(&pool, queried.id)
+        .await
+        .unwrap();
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
 async fn issue_comment_and_reaction_round_trip() {
     let pool = make_pool().await;
     let fx = seed(&pool).await;
@@ -789,7 +940,8 @@ async fn project_create_with_default_statuses_seeds_six_atomically() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
 
     let project = ProjectRow::create_with_default_statuses(
         &pool,
@@ -801,7 +953,8 @@ async fn project_create_with_default_statuses_seeds_six_atomically() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
 
     let statuses = ProjectStatus::find_by_project(&pool, project.id)
         .await
@@ -986,7 +1139,7 @@ async fn issue_follower_find_by_issue_orders_by_id() {
             },
         )
         .await
-        .unwrap().data;
+        .unwrap();
     }
 
     let listed: Vec<Uuid> = IssueFollower::find_by_issue(&pool, issue.id)
@@ -1059,7 +1212,7 @@ async fn issue_tag_find_by_issue_orders_by_id() {
             },
         )
         .await
-        .unwrap().data;
+        .unwrap();
     }
 
     let listed: Vec<Uuid> = IssueTag::find_by_issue(&pool, issue.id)
@@ -1399,26 +1552,12 @@ async fn pull_request_issue_list_by_project_returns_linked_prs() {
     let issue_a = make_issue(&pool, &fx).await;
     let issue_b = make_issue(&pool, &fx).await;
 
-    let pr_a = PullRequest::create(
-        &pool,
-        None,
-        None,
-        "https://example.com/p/1",
-        1,
-        "main",
-    )
-    .await
-    .unwrap();
-    let pr_b = PullRequest::create(
-        &pool,
-        None,
-        None,
-        "https://example.com/p/2",
-        2,
-        "main",
-    )
-    .await
-    .unwrap();
+    let pr_a = PullRequest::create(&pool, None, None, "https://example.com/p/1", 1, "main")
+        .await
+        .unwrap();
+    let pr_b = PullRequest::create(&pool, None, None, "https://example.com/p/2", 2, "main")
+        .await
+        .unwrap();
 
     PullRequestIssueRepository::link(&pool, &pr_a.id, issue_a.id)
         .await
@@ -1768,13 +1907,15 @@ async fn project_create_with_default_statuses_rolls_back_atomically_on_status_fa
     assert!(result.is_err(), "expected FK violation, got {:?}", result);
 
     // The doomed project row must not remain.
-    let project_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE id = ?")
-            .bind(project_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(project_count, 0, "no project row should remain after rollback");
+    let project_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        project_count, 0,
+        "no project row should remain after rollback"
+    );
 
     // No status rows for the doomed project either.
     let status_count: i64 =
@@ -1809,13 +1950,15 @@ async fn issue_create_with_org_short_id_uses_org_prefix_and_counter() {
 
     let first = Issue::create_with_org_short_id(&pool, Uuid::new_v4(), &request, Some(fx.user.id))
         .await
-        .unwrap().data;
+        .unwrap()
+        .data;
     assert_eq!(first.simple_id, "ACME-1");
     assert_eq!(first.issue_number, 1);
 
     let second = Issue::create_with_org_short_id(&pool, Uuid::new_v4(), &request, Some(fx.user.id))
         .await
-        .unwrap().data;
+        .unwrap()
+        .data;
     assert_eq!(second.simple_id, "ACME-2");
     assert_eq!(second.issue_number, 2);
 
@@ -1845,7 +1988,8 @@ async fn issue_create_with_org_short_id_unique_across_projects_in_same_org() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     let other_status = ProjectStatus::create(
         &pool,
         Uuid::new_v4(),
@@ -1859,7 +2003,8 @@ async fn issue_create_with_org_short_id_unique_across_projects_in_same_org() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
 
     let first = Issue::create_with_org_short_id(
         &pool,
@@ -1868,7 +2013,8 @@ async fn issue_create_with_org_short_id_unique_across_projects_in_same_org() {
         Some(fx.user.id),
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     let second = Issue::create_with_org_short_id(
         &pool,
         Uuid::new_v4(),
@@ -1876,7 +2022,8 @@ async fn issue_create_with_org_short_id_unique_across_projects_in_same_org() {
         Some(fx.user.id),
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
 
     assert_ne!(
         first.issue_number, second.issue_number,
@@ -1901,7 +2048,8 @@ async fn invitation_accept_marks_accepted_and_inserts_membership() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
 
     let invitation = Invitation::create(
         &pool,
@@ -2012,7 +2160,7 @@ async fn workspace_issue_link_replace_for_workspace_relinks_singular() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     // Relink to a different issue using replace_for_workspace.
     let replaced = WorkspaceIssueLink::replace_for_workspace(
@@ -2050,7 +2198,7 @@ async fn member_remove_with_guardrails_blocks_self_removal() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     let result = OrganizationMember::remove_with_guardrails(
         &pool,
@@ -2094,7 +2242,8 @@ async fn member_remove_with_guardrails_blocks_personal_org() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2104,7 +2253,7 @@ async fn member_remove_with_guardrails_blocks_personal_org() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2114,7 +2263,7 @@ async fn member_remove_with_guardrails_blocks_personal_org() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     let result = OrganizationMember::remove_with_guardrails(
         &pool,
@@ -2145,7 +2294,8 @@ async fn member_remove_with_guardrails_blocks_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2155,7 +2305,7 @@ async fn member_remove_with_guardrails_blocks_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2165,7 +2315,7 @@ async fn member_remove_with_guardrails_blocks_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     // The acting user is fx.user (a member, not the target). Removing the
     // sole admin must be rejected so the org is never left admin-less.
@@ -2196,7 +2346,7 @@ async fn member_update_role_blocks_self_demotion_and_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     // Self-demotion: blocked even if there were other admins.
     let result = OrganizationMember::update_role_with_guardrails(
@@ -2222,7 +2372,8 @@ async fn member_update_role_blocks_self_demotion_and_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     OrganizationMember::create(
         &pool,
         &CreateOrganizationMember {
@@ -2232,7 +2383,7 @@ async fn member_update_role_blocks_self_demotion_and_last_admin() {
         },
     )
     .await
-    .unwrap().data;
+    .unwrap();
 
     // Acting user demotes the *other* admin; now the original is the last
     // admin — second demotion attempt must be rejected.
@@ -2451,7 +2602,8 @@ async fn organization_create_writes_vk_prefix_even_with_legacy_schema_default() 
         },
     )
     .await
-    .unwrap().data;
+    .unwrap()
+    .data;
     assert_eq!(
         org.issue_prefix, "VK",
         "Organization::create() must write the VK prefix explicitly so \

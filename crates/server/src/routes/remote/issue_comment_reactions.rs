@@ -45,10 +45,8 @@ async fn list_issue_comment_reactions(
     // issue at once (rather than per-comment); see
     // `IssueCommentReaction::find_by_issue` for the JOIN.
     let rows = IssueCommentReactionRow::find_by_issue(pool, query.issue_id).await?;
-    let issue_comment_reactions: Vec<IssueCommentReaction> = rows
-        .into_iter()
-        .map(IssueCommentReaction::from)
-        .collect();
+    let issue_comment_reactions: Vec<IssueCommentReaction> =
+        rows.into_iter().map(IssueCommentReaction::from).collect();
     Ok(ResponseJson(ApiResponse::success(
         ListIssueCommentReactionsResponse {
             issue_comment_reactions,

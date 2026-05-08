@@ -256,9 +256,11 @@ mod tests {
         // Already-v9 files are skipped by the forward chain, so explicit
         // values on disk are honored even if they conflict with the schema
         // default. Operators can intentionally re-enable flags after upgrade.
-        let mut config = Config::default();
-        config.analytics_enabled = true;
-        config.relay_enabled = true;
+        let config = Config {
+            analytics_enabled: true,
+            relay_enabled: true,
+            ..Config::default()
+        };
         let raw = serde_json::to_string(&config).expect("serialize v9");
         let parsed = Config::from(raw);
         assert_eq!(parsed.config_version, "v9");
