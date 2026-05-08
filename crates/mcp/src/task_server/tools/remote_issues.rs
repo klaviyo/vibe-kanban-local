@@ -1189,7 +1189,7 @@ mod tests {
     /// block for a clear signal and self-resolve, producing a self-deadlock.
     /// These tests pin the error-surfacing contract so it cannot regress.
     mod relationship_fetch_errors {
-        use std::sync::Arc;
+        use std::sync::{Arc, Once};
 
         use rmcp::handler::server::tool::ToolRouter;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1199,6 +1199,21 @@ mod tests {
         use crate::task_server::McpMode;
 
         type MockHandler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync + 'static>;
+
+        // `cargo nextest` runs each test in its own process, so the default
+        // rustls crypto provider must be installed before the first
+        // `reqwest::Client` is built. Without this, building the client (or
+        // its first TLS handshake) panics. Mirrors the helper in
+        // `tools/mod.rs`.
+        static RUSTLS_PROVIDER: Once = Once::new();
+
+        fn install_rustls_provider() {
+            RUSTLS_PROVIDER.call_once(|| {
+                rustls::crypto::aws_lc_rs::default_provider()
+                    .install_default()
+                    .expect("Failed to install rustls crypto provider");
+            });
+        }
 
         /// Spawns a minimal HTTP/1.1 server bound to a random localhost port,
         /// dispatching each request to `handler` (which receives the request
@@ -1241,6 +1256,7 @@ mod tests {
         }
 
         fn server(base_url: &str) -> McpServer {
+            install_rustls_provider();
             McpServer {
                 client: reqwest::Client::new(),
                 base_url: base_url.to_string(),
