@@ -1203,15 +1203,16 @@ mod tests {
         // `cargo nextest` runs each test in its own process, so the default
         // rustls crypto provider must be installed before the first
         // `reqwest::Client` is built. Without this, building the client (or
-        // its first TLS handshake) panics. Mirrors the helper in
-        // `tools/mod.rs`.
+        // its first TLS handshake) panics. Under `cargo test -p mcp --lib`
+        // the lib test harness shares one process across modules, so a
+        // sibling helper (e.g. `tools/mod.rs`) may have installed the same
+        // provider already — `install_default()` returns `Err` in that case,
+        // which is exactly the state we want, so swallow the result.
         static RUSTLS_PROVIDER: Once = Once::new();
 
         fn install_rustls_provider() {
             RUSTLS_PROVIDER.call_once(|| {
-                rustls::crypto::aws_lc_rs::default_provider()
-                    .install_default()
-                    .expect("Failed to install rustls crypto provider");
+                let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
             });
         }
 

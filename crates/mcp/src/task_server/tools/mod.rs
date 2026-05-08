@@ -453,13 +453,16 @@ mod tests {
     use super::McpServer;
     use crate::task_server::{McpContext, McpMode, McpRepoContext};
 
+    // Under `cargo test -p mcp --lib` the lib test harness shares one
+    // process across modules, so a sibling helper (e.g. the one in
+    // `remote_issues.rs`) may have installed the same provider already —
+    // `install_default()` returns `Err` in that case, which is exactly the
+    // state we want, so swallow the result.
     static RUSTLS_PROVIDER: Once = Once::new();
 
     fn install_rustls_provider() {
         RUSTLS_PROVIDER.call_once(|| {
-            rustls::crypto::aws_lc_rs::default_provider()
-                .install_default()
-                .expect("Failed to install rustls crypto provider");
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         });
     }
 
