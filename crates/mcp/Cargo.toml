@@ -1,6 +1,6 @@
 [package]
 name = "mcp"
-version = "0.1.44"
+version.workspace = true
 edition = "2024"
 autobins = false
 
@@ -15,6 +15,7 @@ uninlined-format-args = "allow"
 api-types = { path = "../api-types" }
 db = { path = "../db" }
 executors = { path = "../executors" }
+git-host = { path = "../git-host" }
 utils = { path = "../utils" }
 tokio = { workspace = true }
 serde = { workspace = true }
