@@ -1126,10 +1126,8 @@ mod tests {
                 (IssueRelationshipType::DuplicateOf, "duplicate_of"),
             ];
             for (variant, expected) in cases {
-                let enriched = McpServer::enrich_relationship(
-                    &row(queried, other, variant),
-                    &simple_id_map,
-                );
+                let enriched =
+                    McpServer::enrich_relationship(&row(queried, other, variant), &simple_id_map);
                 assert_eq!(enriched.relationship_type, expected);
             }
         }

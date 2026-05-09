@@ -49,7 +49,7 @@
     "subagent": {
       "defaultType": "Sous-agent"
     },
-    "loadingEarlierMessages": "Chargement des messages pr\u00e9c\u00e9dents"
+    "loadingEarlierMessages": "Chargement des messages précédents"
   },
   "folderPicker": {
     "legend": "Cliquez sur les noms de dossiers pour naviguer • Utilisez les boutons d'action pour sélectionner",
@@ -77,7 +77,6 @@
   "ok": "OK",
   "error": "Erreur",
   "signIn": "Se connecter",
-  "signOut": "Se déconnecter",
   "oauth": {
     "title": "Se connecter à Vibe Kanban",
     "description": "Connectez-vous pour rejoindre des organisations et partager des tâches avec votre équipe",
@@ -473,10 +472,6 @@
       "workspaces": {
         "title": "Workspaces",
         "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
-      },
-      "organizations": {
-        "title": "Invite your team",
-        "content": "We've automatically created a personal organization and initial project so you can get started with Vibe Kanban. Export your cloud data before shutdown."
       }
     }
   },

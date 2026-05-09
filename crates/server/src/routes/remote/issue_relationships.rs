@@ -37,7 +37,10 @@ fn project_relationship(queried_issue_id: Uuid, row: IssueRelationship) -> Issue
         // From<storage>::for wire conversion changed in a way that can
         // emit an inverse label, which is a contract violation.
         IssueRelationshipType::BlockedBy | IssueRelationshipType::DuplicateOf => {
-            unreachable!("stored row had inverse-label type {:?}", row.relationship_type)
+            unreachable!(
+                "stored row had inverse-label type {:?}",
+                row.relationship_type
+            )
         }
     };
     IssueRelationship {
@@ -323,7 +326,9 @@ mod tests {
             let normalized = normalize_create_request(request);
             assert_eq!(normalized.issue_id, a);
             assert_eq!(normalized.related_issue_id, b);
-            assert!(matches!(normalized.relationship_type, t if std::mem::discriminant(&t) == std::mem::discriminant(&ty)));
+            assert!(
+                matches!(normalized.relationship_type, t if std::mem::discriminant(&t) == std::mem::discriminant(&ty))
+            );
         }
     }
 }

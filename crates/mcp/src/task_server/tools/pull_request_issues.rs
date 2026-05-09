@@ -98,11 +98,13 @@ impl McpServer {
         };
 
         let link_url = self.url("/api/remote/pull-request-issues");
-        let response: MutationResponse<PullRequestIssue> =
-            match self.send_json(self.client.post(&link_url).json(&payload)).await {
-                Ok(r) => r,
-                Err(e) => return Ok(Self::tool_error(e)),
-            };
+        let response: MutationResponse<PullRequestIssue> = match self
+            .send_json(self.client.post(&link_url).json(&payload))
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Ok(Self::tool_error(e)),
+        };
 
         McpServer::success(&McpLinkPrToIssueResponse {
             pull_request_issue_id: response.data.id.to_string(),
