@@ -77,7 +77,6 @@
   "ok": "OK",
   "error": "Error",
   "signIn": "Iniciar sesión",
-  "signOut": "Cerrar sesión",
   "oauth": {
     "title": "Iniciar sesión en Vibe Kanban",
     "description": "Inicia sesión para unirte a organizaciones y compartir tareas con tu equipo",
@@ -473,10 +472,6 @@
       "workspaces": {
         "title": "Workspaces",
         "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
-      },
-      "organizations": {
-        "title": "Invite your team",
-        "content": "We've automatically created a personal organization and initial project so you can get started with Vibe Kanban. Export your cloud data before shutdown."
       }
     }
   },

@@ -41,6 +41,7 @@ mod issue_assignees;
 mod issue_relationships;
 mod issue_tags;
 mod organizations;
+mod pull_request_issues;
 mod remote_issues;
 mod remote_projects;
 mod repos;
@@ -117,6 +118,7 @@ impl McpServer {
             + Self::issue_assignees_tools_router()
             + Self::issue_tags_tools_router()
             + Self::issue_relationships_tools_router()
+            + Self::pull_request_issues_tools_router()
             + Self::task_attempts_tools_router()
             + Self::session_tools_router()
     }

@@ -29,11 +29,22 @@ impl From<IssueRelationshipType> for wire::IssueRelationshipType {
 }
 
 impl From<wire::IssueRelationshipType> for IssueRelationshipType {
+    /// Wire→storage. Only the three canonical types map; the inverse
+    /// labels (`BlockedBy`, `DuplicateOf`) must be normalized to their
+    /// canonical form (with field swap) at the route layer before
+    /// reaching storage. Reaching this arm with an inverse label is a
+    /// caller bug — panic loudly so it surfaces in tests.
     fn from(value: wire::IssueRelationshipType) -> Self {
         match value {
             wire::IssueRelationshipType::Blocking => IssueRelationshipType::Blocking,
             wire::IssueRelationshipType::Related => IssueRelationshipType::Related,
             wire::IssueRelationshipType::HasDuplicate => IssueRelationshipType::HasDuplicate,
+            wire::IssueRelationshipType::BlockedBy | wire::IssueRelationshipType::DuplicateOf => {
+                panic!(
+                    "inverse-label {value:?} reached storage without normalization — \
+                     route layer must swap fields and rewrite to the canonical form first"
+                )
+            }
         }
     }
 }

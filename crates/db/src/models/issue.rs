@@ -420,7 +420,13 @@ impl Issue {
                    sort_order               = CASE WHEN $16 THEN $17 ELSE sort_order END,
                    parent_issue_id          = CASE WHEN $18 THEN $19 ELSE parent_issue_id END,
                    parent_issue_sort_order  = CASE WHEN $20 THEN $21 ELSE parent_issue_sort_order END,
-                   extension_metadata       = CASE WHEN $22 THEN $23 ELSE extension_metadata END,
+                   -- `extension_metadata` uses RFC 7396 (JSON Merge Patch)
+                   -- semantics on PATCH: caller-supplied keys are added or
+                   -- overwritten; existing keys not mentioned are preserved;
+                   -- `null` values delete keys; a non-object patch (e.g.
+                   -- bare `null`) replaces the whole value. POST still sets
+                   -- the initial blob wholesale via the row's INSERT.
+                   extension_metadata       = CASE WHEN $22 THEN json_patch(extension_metadata, $23) ELSE extension_metadata END,
                    updated_at               = datetime('now', 'subsec')
                WHERE id = $1
                RETURNING id                       as "id!: Uuid",

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id              as \"id!: Uuid\",\n                      pull_request_id as \"pull_request_id!: String\",\n                      issue_id        as \"issue_id!: Uuid\"\n               FROM pull_request_issues\n               WHERE pull_request_id = $1 AND issue_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "pull_request_id!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "93ea88b3af5245cf6f11d091863dde8f94643a63c9b367d5e0708583c15cbdde"
+}

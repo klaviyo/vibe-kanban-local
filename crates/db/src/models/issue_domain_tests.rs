@@ -460,6 +460,138 @@ async fn issue_crud_round_trip_with_patch_shape() {
     assert!(Issue::delete(&pool, issue.id).await.unwrap().txid > 0);
 }
 
+/// Pin the RFC 7396 (JSON Merge Patch) semantics on `extension_metadata`
+/// updates: keys in the patch are added/overwritten, keys absent from the
+/// patch are preserved, explicit `null` values delete keys, and a non-object
+/// patch (here `null`) replaces the whole stored value. This matches what
+/// SQLite's `json_patch()` does — the regression risk is dropping back to
+/// clobber semantics by accident.
+#[tokio::test]
+async fn issue_extension_metadata_patch_merges_keys() {
+    let pool = make_pool().await;
+    let fx = seed(&pool).await;
+    let issue = make_issue(&pool, &fx).await;
+
+    // Seed an initial blob so the next patch has something to merge into.
+    let seeded = Issue::update(
+        &pool,
+        issue.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: None,
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: Some(json!({"a": 1, "b": 2})),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    assert_eq!(seeded.extension_metadata.0, json!({"a": 1, "b": 2}));
+
+    // Merge: caller-supplied keys add/overwrite; untouched keys persist.
+    let merged = Issue::update(
+        &pool,
+        issue.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: None,
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: Some(json!({"b": 99, "c": 3})),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    assert_eq!(
+        merged.extension_metadata.0,
+        json!({"a": 1, "b": 99, "c": 3})
+    );
+
+    // Null-deletes (RFC 7396 §1): an explicit null on a key removes it.
+    let after_delete = Issue::update(
+        &pool,
+        issue.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: None,
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: Some(json!({"a": null})),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    assert_eq!(after_delete.extension_metadata.0, json!({"b": 99, "c": 3}));
+
+    // Non-object patch (`null`): per RFC 7396, replaces the whole target.
+    let replaced = Issue::update(
+        &pool,
+        issue.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: None,
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: Some(json!(null)),
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    assert_eq!(replaced.extension_metadata.0, json!(null));
+
+    // Omitting the field leaves the column unchanged (sentinel-on-PATCH).
+    let unchanged = Issue::update(
+        &pool,
+        issue.id,
+        &UpdateIssueRequest {
+            status_id: None,
+            title: Some("nudge".into()),
+            description: None,
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: None,
+        },
+    )
+    .await
+    .unwrap()
+    .data;
+    assert_eq!(unchanged.extension_metadata.0, json!(null));
+    assert_eq!(unchanged.title, "nudge");
+}
+
 #[tokio::test]
 async fn issue_rejects_unknown_status_fk() {
     let pool = make_pool().await;
@@ -1559,10 +1691,10 @@ async fn pull_request_issue_list_by_project_returns_linked_prs() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr_a.id, issue_a.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_a.id, issue_a.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr_b.id, issue_b.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_b.id, issue_b.id)
         .await
         .unwrap();
 
@@ -2422,10 +2554,10 @@ async fn pull_request_issue_list_by_issue_returns_linked_prs() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr_one.id, issue.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_one.id, issue.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr_two.id, other_issue.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_two.id, other_issue.id)
         .await
         .unwrap();
 
@@ -2454,12 +2586,20 @@ async fn pull_request_issue_link_is_idempotent() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+    let first_id = Uuid::new_v4();
+    let second_id = Uuid::new_v4();
+    let first = PullRequestIssueRepository::link(&pool, first_id, &pr.id, issue.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+    let second = PullRequestIssueRepository::link(&pool, second_id, &pr.id, issue.id)
         .await
         .unwrap();
+
+    assert_eq!(first.data.id, first_id);
+    assert_eq!(
+        second.data.id, first_id,
+        "second link must surface the existing junction id, not the rejected new one",
+    );
 
     let listed = PullRequestIssueRepository::list_by_issue(&pool, issue.id)
         .await

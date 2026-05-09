@@ -77,7 +77,6 @@
   "ok": "確定",
   "error": "錯誤",
   "signIn": "登入",
-  "signOut": "登出",
   "oauth": {
     "title": "登入 Vibe Kanban",
     "description": "登入以加入組織並與團隊共享任務",
@@ -473,10 +472,6 @@
       "workspaces": {
         "title": "Workspaces",
         "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
-      },
-      "organizations": {
-        "title": "Invite your team",
-        "content": "We've automatically created a personal organization and initial project so you can get started with Vibe Kanban. Export your cloud data before shutdown."
       }
     }
   },

@@ -298,8 +298,6 @@ export type RunScriptError = { "type": "no_script_configured" } | { "type": "pro
 
 export type AssociateWorkspaceAttachmentsRequest = { attachment_ids: Array<string>, };
 
-export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, issue_id: string, };
-
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
 
 export type AttachExistingPrRequest = { repo_id: string, };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowSquareOut } from '@phosphor-icons/react';
 import {
   Dialog,
@@ -192,6 +192,7 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
   }
 
   const { insertPullRequestIssue } = useProjectContext();
+  const queryClient = useQueryClient();
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
@@ -241,6 +242,7 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
     setLinkError(null);
     try {
       const { persisted } = insertPullRequestIssue({
+        id: crypto.randomUUID(),
         issue_id: issueId,
         url: pr.url,
         number: Number(pr.number),
@@ -250,11 +252,12 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
         target_branch_name: pr.base_branch,
       });
       await persisted;
-      await issuePrsApi.linkToIssue({
-        pr_url: pr.url,
-        pr_number: Number(pr.number),
-        base_branch: pr.base_branch,
-        issue_id: issueId,
+      // The mutation hook only invalidates the `pull_request_issues` query
+      // it owns; the linked PR row lives in the sibling `pull_requests`
+      // shape, so refetch it here so the issue card surfaces the new PR
+      // without waiting for the 5s background poll.
+      await queryClient.invalidateQueries({
+        queryKey: ['shape', 'pull_requests'],
       });
       modal.hide();
     } catch (err) {

@@ -105,6 +105,9 @@ export interface KanbanIssuePanelProps {
   onRemoveParentIssue?: () => void;
   linkedPrs?: LinkedPullRequest[];
   onLinkPr?: () => void;
+  /** Linear ticket URL pulled off `issue.extension_metadata.linear_url`. */
+  linearUrl?: string | null;
+  onLinkLinear?: () => void;
 
   // Actions
   onClose: () => void;
@@ -171,6 +174,8 @@ export function KanbanIssuePanel({
   onRemoveParentIssue,
   linkedPrs = [],
   onLinkPr,
+  linearUrl,
+  onLinkLinear,
   onClose,
   onSubmit,
   onCmdEnterSubmit,
@@ -324,10 +329,12 @@ export function KanbanIssuePanel({
             selectedTagIds={formData.tagIds}
             availableTags={tags}
             linkedPrs={isCreateMode ? [] : linkedPrs}
+            linearUrl={isCreateMode ? null : linearUrl}
             onTagsChange={(tagIds) => onFormChange('tagIds', tagIds)}
             onCreateTag={onCreateTag}
             renderAddTagControl={renderAddTagControl}
             onLinkPr={!isCreateMode ? onLinkPr : undefined}
+            onLinkLinear={!isCreateMode ? onLinkLinear : undefined}
             disabled={isSubmitting}
           />
         </div>

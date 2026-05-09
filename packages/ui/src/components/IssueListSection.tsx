@@ -11,7 +11,9 @@ import {
   type IssueListRowIssue,
   type IssueListRowTag,
   type IssueListRowRelationship,
+  type WorkspaceActivitySignal,
 } from './IssueListRow';
+import type { KanbanPullRequest } from './KanbanCardContent';
 import type { KanbanAssigneeUser } from './KanbanAssignee';
 
 export interface IssueListSectionStatus {
@@ -29,6 +31,10 @@ export interface IssueListSectionProps {
   getResolvedRelationshipsForIssue?: (
     issueId: string
   ) => IssueListRowRelationship[];
+  workspaceActivityByIssueId?: ReadonlyMap<string, WorkspaceActivitySignal>;
+  pullRequestsByIssueId?: ReadonlyMap<string, KanbanPullRequest[]>;
+  /** Map of issue id → Linear URL (extension_metadata.linear_url). */
+  linearUrlByIssueId?: ReadonlyMap<string, string>;
   onIssueClick: (issueId: string, e: MouseEvent) => void;
   selectedIssueId: string | null;
   selectedIssueIds?: Set<string>;
@@ -44,6 +50,9 @@ export function IssueListSection({
   issueAssigneesMap,
   getTagObjectsForIssue,
   getResolvedRelationshipsForIssue,
+  workspaceActivityByIssueId,
+  pullRequestsByIssueId,
+  linearUrlByIssueId,
   onIssueClick,
   selectedIssueId,
   selectedIssueIds,
@@ -117,6 +126,11 @@ export function IssueListSection({
                     tags={getTagObjectsForIssue(issue.id)}
                     relationships={getResolvedRelationshipsForIssue?.(issue.id)}
                     assignees={issueAssigneesMap[issue.id] ?? []}
+                    workspaceActivity={workspaceActivityByIssueId?.get(
+                      issue.id
+                    )}
+                    pullRequests={pullRequestsByIssueId?.get(issue.id)}
+                    linearUrl={linearUrlByIssueId?.get(issue.id)}
                     onClick={(e) => onIssueClick(issue.id, e)}
                     isSelected={selectedIssueId === issue.id}
                     isMultiSelectActive={isMultiSelectActive}

@@ -24,6 +24,15 @@ members = [
 ]
 exclude = ["crates/remote"]
 
+# Inherited by every workspace member via `version.workspace = true`. The
+# fork's release identity lives in `.installed_tag` (date-stamped) next
+# to the binary, not in Cargo.toml. `display_version()` falls back to
+# CARGO_PKG_VERSION only when no tag file is present (local dev builds),
+# so "0.0.0-dev" surfaces in the UI exactly when it's accurate: this is
+# not a tagged release.
+[workspace.package]
+version = "0.0.0-dev"
+
 [workspace.dependencies]
 tokio = { version = "1.0", features = ["full"] }
 axum = { version = "0.8.4", features = ["macros", "multipart", "ws"] }

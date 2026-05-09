@@ -16,7 +16,14 @@ struct McpCreateIssueRelationshipRequest {
     issue_id: Uuid,
     #[schemars(description = "The related issue ID")]
     related_issue_id: Uuid,
-    #[schemars(description = "Relationship type: 'blocking', 'related', or 'has_duplicate'")]
+    #[schemars(
+        description = "Relationship type. Five values are accepted; the API normalizes the inverse forms to canonical storage. \
+            'blocking' (`issue_id` blocks `related_issue_id`), \
+            'blocked_by' (`issue_id` is blocked by `related_issue_id` — equivalent to swapping the ids and using 'blocking'), \
+            'related' (symmetric), \
+            'has_duplicate' (`related_issue_id` is a duplicate of `issue_id`), \
+            'duplicate_of' (`issue_id` is a duplicate of `related_issue_id` — equivalent to swapping the ids and using 'has_duplicate')."
+    )]
     relationship_type: IssueRelationshipType,
 }
 
@@ -42,7 +49,7 @@ struct McpDeleteIssueRelationshipResponse {
 #[tool_router(router = issue_relationships_tools_router, vis = "pub")]
 impl McpServer {
     #[tool(
-        description = "Create a relationship between two issues. Types: 'blocking', 'related', 'has_duplicate'."
+        description = "Create a relationship between two issues. Five types: 'blocking'/'blocked_by' (asymmetric), 'related' (symmetric), 'has_duplicate'/'duplicate_of' (asymmetric). Inverse forms are normalized — 'X blocked_by Y' is stored as 'Y blocking X'."
     )]
     async fn create_issue_relationship(
         &self,

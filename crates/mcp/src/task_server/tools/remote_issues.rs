@@ -31,6 +31,10 @@ struct McpCreateIssueRequest {
     priority: Option<String>,
     #[schemars(description = "Optional parent issue ID to create a subissue")]
     parent_issue_id: Option<Uuid>,
+    #[schemars(
+        description = "Optional opaque JSON blob persisted on the issue. Treated as a key/value store by callers (e.g. a `linear_id` or workflow state). Defaults to `{}` when omitted. The CREATE path stores the value verbatim — use `update_issue` to merge subsequent changes."
+    )]
+    extension_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -131,23 +135,21 @@ struct McpRelationshipSummary {
     #[schemars(description = "The relationship ID (use this to delete)")]
     id: String,
     #[schemars(
-        description = "The queried issue's ID — the anchor of the per-issue read. The remaining fields are projected from this issue's point of view."
+        description = "The queried issue's ID. Per-issue rows are projected from this issue's POV by the API: this field is always the anchor."
     )]
     issue_id: String,
     #[schemars(
-        description = "The OTHER side of the relationship from the queried issue's POV. For outbound rows this is the row's raw `related_issue_id`; for inbound rows it is swapped to the row's raw `issue_id` so this field always points away from the queried issue."
+        description = "The other side of the relationship — always points away from the queried issue."
     )]
     related_issue_id: String,
     #[schemars(
-        description = "The other issue's simple ID (e.g. 'PROJ-42'), normalized to the same side as `related_issue_id`. Empty if the other issue is in a different project than the queried issue (per-project simple-id resolution does not cross projects)."
+        description = "The other issue's simple ID (e.g. 'PROJ-42'). Empty if the other issue is in a different project than the queried issue (per-project simple-id resolution does not cross projects)."
     )]
     related_simple_id: String,
-    #[schemars(description = "Relationship type: blocking, related, or has_duplicate")]
-    relationship_type: String,
     #[schemars(
-        description = "Direction of the relationship from the queried issue's POV: 'outbound' when the queried issue is the source side of the row, 'inbound' when it is the target side."
+        description = "Relationship type from the queried issue's POV. One of: 'blocking' (this issue blocks `related_issue_id`), 'blocked_by' (this issue is blocked by `related_issue_id`), 'related' (symmetric), 'has_duplicate' (`related_issue_id` is a duplicate of this), 'duplicate_of' (this is a duplicate of `related_issue_id`)."
     )]
-    direction: String,
+    relationship_type: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -228,6 +230,10 @@ struct McpUpdateIssueRequest {
         description = "Parent issue ID to set this as a subissue. Pass null to un-nest from parent."
     )]
     parent_issue_id: Option<Option<Uuid>>,
+    #[schemars(
+        description = "JSON Merge Patch (RFC 7396) applied to the issue's `extension_metadata` blob. Caller-supplied keys are added or overwritten; existing keys not mentioned are preserved; `null` values delete keys; a non-object patch (e.g. bare `null`) replaces the whole value. Omit to leave the existing blob untouched."
+    )]
+    extension_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -275,6 +281,7 @@ impl McpServer {
             description,
             priority,
             parent_issue_id,
+            extension_metadata,
         }): Parameters<McpCreateIssueRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let project_id = match self.resolve_project_id(project_id) {
@@ -313,7 +320,7 @@ impl McpServer {
             sort_order: 0.0,
             parent_issue_id,
             parent_issue_sort_order: None,
-            extension_metadata: serde_json::json!({}),
+            extension_metadata: extension_metadata.unwrap_or_else(|| serde_json::json!({})),
         };
 
         let url = self.url("/api/remote/issues");
@@ -507,6 +514,7 @@ impl McpServer {
             status,
             priority,
             parent_issue_id,
+            extension_metadata,
         }): Parameters<McpUpdateIssueRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // First get the issue to know its project_id for status resolution
@@ -555,7 +563,7 @@ impl McpServer {
             sort_order: None,
             parent_issue_id,
             parent_issue_sort_order: None,
-            extension_metadata: None,
+            extension_metadata,
         };
 
         let url = self.url(&format!("/api/remote/issues/{}", issue_id));
@@ -763,10 +771,11 @@ impl McpServer {
             .collect()
     }
 
-    /// Fetches relationships for an issue and projects each row from the
-    /// queried issue's POV: direction is computed per row and the
-    /// "other ticket" fields (`related_issue_id`, `related_simple_id`)
-    /// are normalized so they always point away from the queried issue.
+    /// Fetches relationships for an issue and enriches each row with the
+    /// other side's `simple_id`. Per-issue projection (field swap and
+    /// type rewriting for inverse perspectives) is done by the REST API
+    /// upstream, so each `IssueRelationship` already has the queried
+    /// issue in `issue_id` and the inverse-form type for inbound rows.
     ///
     /// Unlike the four sibling sub-resolution sites in this file
     /// (tags, sub-issues, pull requests, project issues), failures here
@@ -821,45 +830,35 @@ impl McpServer {
         Ok(response
             .issue_relationships
             .iter()
-            .map(|r| Self::project_relationship(issue_id, r, &simple_id_map))
+            .map(|r| Self::enrich_relationship(r, &simple_id_map))
             .collect())
     }
 
-    /// Pure projection: produces an `McpRelationshipSummary` for a single
-    /// raw row, viewed from `queried_issue_id`'s POV.
-    ///
-    /// For inbound rows (`row.related_issue_id == queried_issue_id`), the
-    /// "other ticket" fields are populated from the row's `issue_id`
-    /// instead of `related_issue_id`. Getting this swap wrong
-    /// causes vk-conductor to self-dispatch on inbound blocks
-    /// (self-deadlock), so the inbound case is covered by direct unit
-    /// assertions below.
-    fn project_relationship(
-        queried_issue_id: Uuid,
+    /// Enriches an already-projected row with the other side's
+    /// `simple_id`. The REST API is responsible for the field swap and
+    /// inverse-label rewrite; this helper simply formats fields for the
+    /// MCP wire shape and looks up the human-readable id.
+    fn enrich_relationship(
         row: &IssueRelationship,
         simple_id_map: &HashMap<Uuid, &str>,
     ) -> McpRelationshipSummary {
-        let (other_issue_id, direction) = if row.issue_id == queried_issue_id {
-            (row.related_issue_id, "outbound")
-        } else {
-            (row.issue_id, "inbound")
-        };
         let related_simple_id = simple_id_map
-            .get(&other_issue_id)
+            .get(&row.related_issue_id)
             .copied()
             .unwrap_or("")
             .to_string();
         McpRelationshipSummary {
             id: row.id.to_string(),
-            issue_id: queried_issue_id.to_string(),
-            related_issue_id: other_issue_id.to_string(),
+            issue_id: row.issue_id.to_string(),
+            related_issue_id: row.related_issue_id.to_string(),
             related_simple_id,
             relationship_type: match row.relationship_type {
                 IssueRelationshipType::Blocking => "blocking".to_string(),
+                IssueRelationshipType::BlockedBy => "blocked_by".to_string(),
                 IssueRelationshipType::Related => "related".to_string(),
                 IssueRelationshipType::HasDuplicate => "has_duplicate".to_string(),
+                IssueRelationshipType::DuplicateOf => "duplicate_of".to_string(),
             },
-            direction: direction.to_string(),
         }
     }
 
@@ -1043,7 +1042,7 @@ mod tests {
         use chrono::Utc;
         use uuid::Uuid;
 
-        use super::super::{McpRelationshipSummary, McpServer};
+        use super::super::McpServer;
 
         fn row(
             issue_id: Uuid,
@@ -1059,123 +1058,77 @@ mod tests {
             }
         }
 
+        // Per-issue rows arrive already projected (queried issue in
+        // `issue_id`, inverse-form types for inbound rows) — the REST API
+        // does that work upstream. `enrich_relationship` is therefore a
+        // pure pass-through with `simple_id` lookup, and these tests pin
+        // that contract.
+
         #[test]
-        fn outbound_row_keeps_related_side_as_other_ticket() {
+        fn enrich_passes_through_already_projected_row() {
             let queried = Uuid::new_v4();
             let other = Uuid::new_v4();
             let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
             simple_id_map.insert(other, "PROJ-99");
+            // Already-projected outbound row: queried side is `issue_id`.
             let r = row(queried, other, IssueRelationshipType::Blocking);
 
-            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+            let enriched = McpServer::enrich_relationship(&r, &simple_id_map);
 
-            assert_eq!(projected.issue_id, queried.to_string());
-            assert_eq!(projected.related_issue_id, other.to_string());
-            assert_eq!(projected.related_simple_id, "PROJ-99");
-            assert_eq!(projected.direction, "outbound");
-            assert_eq!(projected.relationship_type, "blocking");
+            assert_eq!(enriched.issue_id, queried.to_string());
+            assert_eq!(enriched.related_issue_id, other.to_string());
+            assert_eq!(enriched.related_simple_id, "PROJ-99");
+            assert_eq!(enriched.relationship_type, "blocking");
         }
 
-        // Load-bearing: getting the inbound swap wrong causes vk-conductor
-        // to self-resolve on inbound blocks (deadlock or self-dispatch).
-        // The "other ticket" field MUST point at the row's `issue_id`,
-        // never at the queried issue.
         #[test]
-        fn inbound_row_swaps_to_row_issue_id_as_other_ticket() {
+        fn enrich_surfaces_inverse_label_for_inbound_projection() {
             let queried = Uuid::new_v4();
-            let source = Uuid::new_v4();
+            let blocker = Uuid::new_v4();
             let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
-            simple_id_map.insert(source, "PROJ-7");
-            // Row stored as (source -> queried). When read from `queried`'s
-            // POV the projection must invert: other ticket = `source`.
-            let r = row(source, queried, IssueRelationshipType::Blocking);
+            simple_id_map.insert(blocker, "PROJ-7");
+            // Already-projected inbound row: queried is `issue_id`, type
+            // rewritten to the inverse form by the API.
+            let r = row(queried, blocker, IssueRelationshipType::BlockedBy);
 
-            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+            let enriched = McpServer::enrich_relationship(&r, &simple_id_map);
 
-            assert_eq!(projected.issue_id, queried.to_string());
-            assert_eq!(
-                projected.related_issue_id,
-                source.to_string(),
-                "inbound projection must point at the row's issue_id, never at the queried issue"
-            );
-            assert_ne!(
-                projected.related_issue_id,
-                queried.to_string(),
-                "the 'other ticket' field must never equal the queried issue"
-            );
-            assert_eq!(projected.related_simple_id, "PROJ-7");
-            assert_eq!(projected.direction, "inbound");
+            assert_eq!(enriched.issue_id, queried.to_string());
+            assert_eq!(enriched.related_issue_id, blocker.to_string());
+            assert_eq!(enriched.related_simple_id, "PROJ-7");
+            assert_eq!(enriched.relationship_type, "blocked_by");
         }
 
         #[test]
-        fn inbound_cross_project_yields_empty_simple_id() {
-            // Inbound row whose source side lives in a different project:
-            // simple_id_map (built from the queried issue's project) won't
-            // contain the source id, so `related_simple_id` falls back to
-            // empty. The id and direction fields stay correct.
+        fn enrich_cross_project_yields_empty_simple_id() {
             let queried = Uuid::new_v4();
-            let cross_project_source = Uuid::new_v4();
+            let cross_project_other = Uuid::new_v4();
             let simple_id_map: HashMap<Uuid, &str> = HashMap::new();
-            let r = row(
-                cross_project_source,
-                queried,
-                IssueRelationshipType::Related,
-            );
+            let r = row(queried, cross_project_other, IssueRelationshipType::Related);
 
-            let projected = McpServer::project_relationship(queried, &r, &simple_id_map);
+            let enriched = McpServer::enrich_relationship(&r, &simple_id_map);
 
-            assert_eq!(projected.related_issue_id, cross_project_source.to_string());
-            assert_eq!(projected.related_simple_id, "");
-            assert_eq!(projected.direction, "inbound");
+            assert_eq!(enriched.related_issue_id, cross_project_other.to_string());
+            assert_eq!(enriched.related_simple_id, "");
         }
 
         #[test]
-        fn mixed_set_projects_each_row_independently_from_queried_pov() {
-            let queried = Uuid::new_v4();
-            let outbound_target = Uuid::new_v4();
-            let inbound_source = Uuid::new_v4();
-            let mut simple_id_map: HashMap<Uuid, &str> = HashMap::new();
-            simple_id_map.insert(outbound_target, "PROJ-1");
-            simple_id_map.insert(inbound_source, "PROJ-2");
-
-            let outbound = row(queried, outbound_target, IssueRelationshipType::Blocking);
-            let inbound = row(inbound_source, queried, IssueRelationshipType::Related);
-
-            let projected: Vec<McpRelationshipSummary> = [&outbound, &inbound]
-                .into_iter()
-                .map(|r| McpServer::project_relationship(queried, r, &simple_id_map))
-                .collect();
-
-            assert_eq!(projected[0].direction, "outbound");
-            assert_eq!(projected[0].related_issue_id, outbound_target.to_string());
-            assert_eq!(projected[0].related_simple_id, "PROJ-1");
-            assert_eq!(projected[1].direction, "inbound");
-            assert_eq!(projected[1].related_issue_id, inbound_source.to_string());
-            assert_eq!(projected[1].related_simple_id, "PROJ-2");
-            // Both rows always anchor `issue_id` on the queried issue,
-            // regardless of which side it lives on in the raw row.
-            assert_eq!(projected[0].issue_id, queried.to_string());
-            assert_eq!(projected[1].issue_id, queried.to_string());
-        }
-
-        #[test]
-        fn relationship_type_label_round_trips_through_projection() {
+        fn relationship_type_label_round_trips_through_enrich() {
             let queried = Uuid::new_v4();
             let other = Uuid::new_v4();
             let simple_id_map: HashMap<Uuid, &str> = HashMap::new();
 
             let cases = [
                 (IssueRelationshipType::Blocking, "blocking"),
+                (IssueRelationshipType::BlockedBy, "blocked_by"),
                 (IssueRelationshipType::Related, "related"),
                 (IssueRelationshipType::HasDuplicate, "has_duplicate"),
+                (IssueRelationshipType::DuplicateOf, "duplicate_of"),
             ];
             for (variant, expected) in cases {
-                let projected = McpServer::project_relationship(
-                    queried,
-                    &row(queried, other, variant),
-                    &simple_id_map,
-                );
-                assert_eq!(projected.relationship_type, expected);
+                let enriched =
+                    McpServer::enrich_relationship(&row(queried, other, variant), &simple_id_map);
+                assert_eq!(enriched.relationship_type, expected);
             }
         }
     }
