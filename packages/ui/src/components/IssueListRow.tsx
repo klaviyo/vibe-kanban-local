@@ -188,9 +188,7 @@ export function IssueListRow({
               <div
                 className={cn(
                   'shrink-0 w-4 flex items-center justify-center',
-                  showCheckbox
-                    ? 'visible'
-                    : 'invisible group-hover/row:visible'
+                  showCheckbox ? 'visible' : 'invisible group-hover/row:visible'
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -272,10 +270,7 @@ function renderWorkspaceActivity(
   switch (signal) {
     case 'pendingApproval':
       return (
-        <HandIcon
-          className="size-icon-xs text-brand shrink-0"
-          weight="fill"
-        />
+        <HandIcon className="size-icon-xs text-brand shrink-0" weight="fill" />
       );
     case 'running':
       return <RunningDots />;
