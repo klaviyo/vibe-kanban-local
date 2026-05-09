@@ -652,6 +652,13 @@ export function KanbanContainer() {
   // status-dot slot. Precedence (top wins): pendingApproval > running >
   // failed > unseenActivity. When no signal applies the row falls back to
   // the column's StatusDot.
+  //
+  // Derives directly from `getWorkspacesForIssue` + `localWorkspacesById`
+  // rather than from `workspacesByIssueId`, because the latter gates on
+  // the board-view-only `showWorkspaces` preference. The list view has
+  // no workspace cards, so this glyph is its only surface for agent
+  // state — gating it on a board-view toggle would silently hide every
+  // running/failed/pending-approval signal.
   const workspaceActivityByIssueId = useMemo(() => {
     const RANK: Record<WorkspaceActivitySignal, number> = {
       pendingApproval: 0,
@@ -660,25 +667,33 @@ export function KanbanContainer() {
       unseenActivity: 3,
     };
     const map = new Map<string, WorkspaceActivitySignal>();
-    for (const [issueId, workspaces] of workspacesByIssueId) {
+    for (const issue of issues) {
+      const workspaces = getWorkspacesForIssue(issue.id).filter(
+        (workspace) =>
+          !workspace.archived &&
+          !!workspace.local_workspace_id &&
+          localWorkspacesById.has(workspace.local_workspace_id)
+      );
       let signal: WorkspaceActivitySignal | null = null;
-      for (const ws of workspaces) {
+      for (const workspace of workspaces) {
+        const local = localWorkspacesById.get(workspace.local_workspace_id!);
         const isFailed =
-          ws.latestProcessStatus === 'failed' ||
-          ws.latestProcessStatus === 'killed';
+          local?.latestProcessStatus === 'failed' ||
+          local?.latestProcessStatus === 'killed';
         let next: WorkspaceActivitySignal | null = null;
-        if (ws.isRunning && ws.hasPendingApproval) next = 'pendingApproval';
-        else if (ws.isRunning) next = 'running';
+        if (local?.isRunning && local?.hasPendingApproval)
+          next = 'pendingApproval';
+        else if (local?.isRunning) next = 'running';
         else if (isFailed) next = 'failed';
-        else if (ws.hasUnseenActivity) next = 'unseenActivity';
+        else if (local?.hasUnseenActivity) next = 'unseenActivity';
         if (next && (signal === null || RANK[next] < RANK[signal])) {
           signal = next;
         }
       }
-      if (signal) map.set(issueId, signal);
+      if (signal) map.set(issue.id, signal);
     }
     return map;
-  }, [workspacesByIssueId]);
+  }, [issues, getWorkspacesForIssue, localWorkspacesById]);
 
   // Per-issue PR rollup for the list view's row badges. The board view
   // dedups PRs already shown under a workspace card; the list view has

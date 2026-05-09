@@ -512,7 +512,7 @@ impl Codex {
 
         let (model, is_fast) = resolve_model(self.model.as_deref());
         let service_tier = if is_fast {
-            Some(Some(ServiceTier::Fast))
+            Some(Some(ServiceTier::Fast.to_string()))
         } else {
             None
         };

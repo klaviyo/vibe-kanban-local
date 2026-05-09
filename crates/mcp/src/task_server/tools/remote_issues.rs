@@ -1042,7 +1042,7 @@ mod tests {
         use chrono::Utc;
         use uuid::Uuid;
 
-        use super::super::{McpRelationshipSummary, McpServer};
+        use super::super::McpServer;
 
         fn row(
             issue_id: Uuid,

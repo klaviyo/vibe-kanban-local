@@ -185,13 +185,18 @@ impl Codex {
                             .await;
                     }
                     CodexSlashCommand::Fast { enable, status } => {
-                        // Read current config to support toggle
+                        // Read current config to support toggle. The
+                        // protocol's `service_tier` is now a `String`
+                        // (see codex_protocol 0.129.0); compare against
+                        // the canonical lowercase form
+                        // `ServiceTier::Fast` serializes to.
+                        let fast_label = ServiceTier::Fast.to_string();
                         let current_is_fast = client
                             .config_read(None)
                             .await
                             .ok()
                             .and_then(|r| r.config.service_tier)
-                            .map(|t| matches!(t, ServiceTier::Fast))
+                            .map(|t| t == fast_label)
                             .unwrap_or(false);
                         if status {
                             let message = if current_is_fast || session_fast {
@@ -225,7 +230,7 @@ impl Codex {
                         // Fork current session with new tier if one is active
                         if let Some(old_thread_id) = session_id {
                             let service_tier = if want_fast {
-                                Some(Some(ServiceTier::Fast))
+                                Some(Some(ServiceTier::Fast.to_string()))
                             } else {
                                 Some(None)
                             };
@@ -397,11 +402,13 @@ async fn fetch_status_message(
         lines.push("_Config unavailable_".to_string());
     }
 
-    // Show fast mode
+    // Show fast mode. `service_tier` is a String at the wire level
+    // (codex_protocol 0.129.0); compare against the canonical form.
+    let fast_label = ServiceTier::Fast.to_string();
     let global_fast = config_resp
         .as_ref()
         .and_then(|r| r.config.service_tier.as_ref())
-        .map(|t| matches!(t, ServiceTier::Fast))
+        .map(|t| t == &fast_label)
         .unwrap_or(false);
     if global_fast || session_fast {
         lines.push("- **Service Tier**: `fast ⚡`".to_string());

@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import type { OrganizationWithRole } from "shared/types";
 import { AppBarUserPopover } from "@vibe/ui/components/AppBarUserPopover";
-import { logout } from "@remote/shared/lib/api";
 import { SettingsDialog } from "@/shared/dialogs/settings/SettingsDialog";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
 import { useUserSystem } from "@/shared/hooks/useUserSystem";
@@ -48,19 +47,6 @@ export function RemoteAppBarUserPopoverContainer({
     });
   }, [location, navigate]);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error("Failed to log out in remote web:", error);
-    }
-
-    navigate({
-      to: "/account",
-      replace: true,
-    });
-  }, [navigate]);
-
   const handleOrgSettings = useCallback(
     async (orgId: string) => {
       onOrgSelect(orgId);
@@ -91,9 +77,6 @@ export function RemoteAppBarUserPopoverContainer({
         void handleOrgSettings(orgId);
       }}
       onSignIn={handleSignIn}
-      onLogout={() => {
-        void handleLogout();
-      }}
       onAvatarError={() => setAvatarError(true)}
       onSettings={() => {
         void handleSettings();
