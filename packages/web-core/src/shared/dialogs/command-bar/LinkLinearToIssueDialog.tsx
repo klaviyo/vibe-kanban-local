@@ -125,7 +125,7 @@ function LinkLinearToIssueContent({
           <DialogDescription>
             {t(
               'linkLinearToIssue.description',
-              "Paste the full Linear ticket URL. Leaving it blank removes any existing link."
+              'Paste the full Linear ticket URL. Leaving it blank removes any existing link.'
             )}
           </DialogDescription>
         </DialogHeader>
