@@ -243,6 +243,19 @@ export function KanbanIssuePanelContainer({
     }));
   }, [getPullRequestsForIssue, selectedKanbanIssueId]);
 
+  // Surface the Linear ticket URL from `extension_metadata.linear_url`
+  // (opaque JSON, so we type-check before trusting). Hostname-restrict to
+  // linear.app so the badge is never a generic open-redirect surface.
+  const linearUrl = useMemo<string | null>(() => {
+    const meta = selectedIssue?.extension_metadata;
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+    const url = (meta as Record<string, unknown>).linear_url;
+    if (typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (!/^https?:\/\/linear\.app\//i.test(trimmed)) return null;
+    return trimmed;
+  }, [selectedIssue?.extension_metadata]);
+
   // Determine mode from composer state (create) or issue route (edit).
   const mode = kanbanCreateMode ? 'create' : 'edit';
 
@@ -1021,6 +1034,21 @@ export function KanbanIssuePanelContainer({
     });
   }, [selectedKanbanIssueId, projectId]);
 
+  // Link Linear callback — opens the dialog pre-populated with the
+  // current value (if any) so the same affordance handles add / edit /
+  // remove via the merge-PATCH on `extension_metadata.linear_url`.
+  const handleLinkLinear = useCallback(async () => {
+    if (!selectedKanbanIssueId) return;
+    const { LinkLinearToIssueDialog } = await import(
+      '@/shared/dialogs/command-bar/LinkLinearToIssueDialog'
+    );
+    await LinkLinearToIssueDialog.show({
+      projectId,
+      issueId: selectedKanbanIssueId,
+      currentUrl: linearUrl,
+    });
+  }, [selectedKanbanIssueId, projectId, linearUrl]);
+
   // Loading state
   const isLoading = projectLoading || orgLoading;
   const isResolvingExpectedIssue =
@@ -1054,6 +1082,8 @@ export function KanbanIssuePanelContainer({
       onRemoveParentIssue={handleRemoveParentIssue}
       linkedPrs={linkedPrs}
       onLinkPr={mode === 'edit' ? handleLinkPr : undefined}
+      linearUrl={linearUrl}
+      onLinkLinear={mode === 'edit' ? handleLinkLinear : undefined}
       onClose={closeKanbanIssuePanel}
       onSubmit={handleSubmit}
       onCmdEnterSubmit={handleCmdEnterSubmit}

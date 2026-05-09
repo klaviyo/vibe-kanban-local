@@ -50,7 +50,10 @@ import {
   KanbanHeader,
   type DropResult,
 } from '@vibe/ui/components/KanbanBoard';
-import { KanbanCardContent } from '@vibe/ui/components/KanbanCardContent';
+import {
+  KanbanCardContent,
+  type KanbanPullRequest,
+} from '@vibe/ui/components/KanbanCardContent';
 import {
   IssueWorkspaceCard,
   type WorkspaceWithStats,
@@ -60,6 +63,7 @@ import { resolveRelationshipsForIssue } from '@/shared/lib/resolveRelationships'
 import { KanbanFilterBar } from '@vibe/ui/components/KanbanFilterBar';
 import { ViewNavTabs } from '@vibe/ui/components/ViewNavTabs';
 import { IssueListView } from '@vibe/ui/components/IssueListView';
+import type { WorkspaceActivitySignal } from '@vibe/ui/components/IssueListRow';
 import { CommandBarDialog } from '@/shared/dialogs/command-bar/CommandBarDialog';
 import { KanbanFiltersDialog } from '@/shared/dialogs/kanban/KanbanFiltersDialog';
 import {
@@ -644,6 +648,78 @@ export function KanbanContainer() {
     userId,
   ]);
 
+  // Per-issue rollup of the most-urgent workspace state for the list view's
+  // status-dot slot. Precedence (top wins): pendingApproval > running >
+  // failed > unseenActivity. When no signal applies the row falls back to
+  // the column's StatusDot.
+  const workspaceActivityByIssueId = useMemo(() => {
+    const RANK: Record<WorkspaceActivitySignal, number> = {
+      pendingApproval: 0,
+      running: 1,
+      failed: 2,
+      unseenActivity: 3,
+    };
+    const map = new Map<string, WorkspaceActivitySignal>();
+    for (const [issueId, workspaces] of workspacesByIssueId) {
+      let signal: WorkspaceActivitySignal | null = null;
+      for (const ws of workspaces) {
+        const isFailed =
+          ws.latestProcessStatus === 'failed' ||
+          ws.latestProcessStatus === 'killed';
+        let next: WorkspaceActivitySignal | null = null;
+        if (ws.isRunning && ws.hasPendingApproval) next = 'pendingApproval';
+        else if (ws.isRunning) next = 'running';
+        else if (isFailed) next = 'failed';
+        else if (ws.hasUnseenActivity) next = 'unseenActivity';
+        if (next && (signal === null || RANK[next] < RANK[signal])) {
+          signal = next;
+        }
+      }
+      if (signal) map.set(issueId, signal);
+    }
+    return map;
+  }, [workspacesByIssueId]);
+
+  // Per-issue PR rollup for the list view's row badges. The board view
+  // dedups PRs already shown under a workspace card; the list view has
+  // no workspace cards, so every PR linked to the issue surfaces here.
+  const pullRequestsByIssueId = useMemo(() => {
+    const map = new Map<string, KanbanPullRequest[]>();
+    for (const issue of issues) {
+      const prs = getPullRequestsForIssue(issue.id);
+      if (prs.length === 0) continue;
+      map.set(
+        issue.id,
+        prs.map((pr) => ({
+          id: pr.id,
+          number: pr.number,
+          url: pr.url,
+          status: pr.status,
+        }))
+      );
+    }
+    return map;
+  }, [issues, getPullRequestsForIssue]);
+
+  // Per-issue Linear URL pulled off `extension_metadata.linear_url`. We
+  // sanity-check the type and origin: anything in `extension_metadata` is
+  // opaque JSON, so we ignore non-string values and reject URLs that
+  // aren't pointed at linear.app to keep the badge from being a generic
+  // open-redirect surface.
+  const linearUrlByIssueId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const issue of issues) {
+      const meta = issue.extension_metadata;
+      if (!meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
+      const url = (meta as Record<string, unknown>).linear_url;
+      if (typeof url !== 'string') continue;
+      const trimmed = url.trim();
+      if (!/^https?:\/\/linear\.app\//i.test(trimmed)) continue;
+      map.set(issue.id, trimmed);
+    }
+    return map;
+  }, [issues]);
+
   // Calculate sort_order based on column index and issue position
   // Formula: 1000 * [COLUMN_INDEX] + [ISSUE_INDEX] (both 1-based)
   const calculateSortOrder = useCallback(
@@ -1048,6 +1124,7 @@ export function KanbanContainer() {
                               tags={getTagObjectsForIssue(issue.id)}
                               assignees={issueAssigneesMap[issue.id] ?? []}
                               pullRequests={issueCardPullRequests}
+                              linearUrl={linearUrlByIssueId.get(issue.id)}
                               relationships={resolveRelationshipsForIssue(
                                 issue.id,
                                 getRelationshipsForIssue(issue.id),
@@ -1137,6 +1214,9 @@ export function KanbanContainer() {
               getResolvedRelationshipsForIssue={
                 getResolvedRelationshipsForIssue
               }
+              workspaceActivityByIssueId={workspaceActivityByIssueId}
+              pullRequestsByIssueId={pullRequestsByIssueId}
+              linearUrlByIssueId={linearUrlByIssueId}
               onIssueClick={handleCardClick}
               selectedIssueId={selectedKanbanIssueId}
               selectedIssueIds={selectedIssueIds}

@@ -14,6 +14,7 @@ import { KanbanBadge } from './KanbanBadge';
 import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
 import { RunningDots } from './RunningDots';
 import { PrBadge, type PrBadgeStatus } from './PrBadge';
+import { LinearBadge } from './LinearBadge';
 import {
   RelationshipBadge,
   type RelationshipDisplayType,
@@ -129,6 +130,9 @@ export type KanbanCardContentProps<TTag extends KanbanTag = KanbanTag> = {
   tags: KanbanTag[];
   assignees: KanbanAssigneeUser[];
   pullRequests?: KanbanPullRequest[];
+  /** Linear ticket URL (e.g. extension_metadata.linear_url). Renders a
+   *  badge alongside the PRs when set. */
+  linearUrl?: string | null;
   relationships?: KanbanRelationship[];
   isSubIssue?: boolean;
   isLoading?: boolean;
@@ -148,6 +152,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
   tags,
   assignees,
   pullRequests = [],
+  linearUrl,
   relationships = [],
   isSubIssue,
   isLoading = false,
@@ -290,10 +295,11 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
         )}
       </div>
 
-      {/* Row 5: Tags, PRs, Relationships (own row to prevent overflow) */}
+      {/* Row 5: Tags, PRs, Linear, Relationships (own row to prevent overflow) */}
       {(tags.length > 0 ||
         tagEditProps ||
         pullRequests.length > 0 ||
+        !!linearUrl ||
         relationships.length > 0) && (
         <div className="flex items-center gap-half flex-wrap min-w-0">
           {tagEditProps ? (
@@ -325,6 +331,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
           {pullRequests.length > 2 && (
             <span className="text-sm text-low">+{pullRequests.length - 2}</span>
           )}
+          {linearUrl && <LinearBadge url={linearUrl} />}
           {relationships.slice(0, 2).map((rel) => (
             <RelationshipBadge
               key={rel.relationshipId}

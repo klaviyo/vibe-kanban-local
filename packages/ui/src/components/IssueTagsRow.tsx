@@ -1,8 +1,14 @@
 import type { ReactNode } from 'react';
-import { PlusIcon, HashIcon, GitPullRequest } from '@phosphor-icons/react';
+import {
+  PlusIcon,
+  HashIcon,
+  GitPullRequest,
+  LinkSimpleIcon,
+} from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { PRESET_COLORS } from './ColorPicker';
 import { PrBadge, type PrBadgeStatus } from './PrBadge';
+import { LinearBadge } from './LinearBadge';
 import { TAG_COLORS } from './SearchableTagDropdown';
 
 // Re-export for backwards compatibility.
@@ -32,12 +38,19 @@ export interface IssueTagsRowProps<TTag extends IssueTagBase = IssueTagBase> {
   availableTags: TTag[];
   linkedPrs?: LinkedPullRequest[];
   linkedIssues?: LinkedIssue[];
+  /**
+   * URL of a Linear ticket linked from `extension_metadata.linear_url`.
+   * Empty/undefined hides the badge; clicking the badge opens Linear in
+   * a new tab. Editing/removing happens through `onLinkLinear`.
+   */
+  linearUrl?: string | null;
   onTagsChange: (tagIds: string[]) => void;
   onCreateTag?: (data: { name: string; color: string }) => string;
   renderAddTagControl?: (
     props: IssueTagsRowAddTagControlProps<TTag>
   ) => ReactNode;
   onLinkPr?: () => void;
+  onLinkLinear?: () => void;
   disabled?: boolean;
   className?: string;
 }
@@ -58,10 +71,12 @@ export function IssueTagsRow<TTag extends IssueTagBase>({
   availableTags,
   linkedPrs = [],
   linkedIssues = [],
+  linearUrl,
   onTagsChange,
   onCreateTag,
   renderAddTagControl,
   onLinkPr,
+  onLinkLinear,
   disabled,
   className,
 }: IssueTagsRowProps<TTag>) {
@@ -141,6 +156,24 @@ export function IssueTagsRow<TTag extends IssueTagBase>({
           aria-label="Link pull request"
         >
           <GitPullRequest className="size-icon-xs" weight="bold" />
+        </button>
+      )}
+
+      {/* Linear ticket badge — surfaced as a clickable badge when set;
+          the linear link itself lives in extension_metadata.linear_url. */}
+      {linearUrl && <LinearBadge url={linearUrl} />}
+
+      {/* Link Linear button — opens the editor dialog (also used to remove
+          an existing link by submitting an empty URL). */}
+      {onLinkLinear && (
+        <button
+          type="button"
+          onClick={onLinkLinear}
+          disabled={disabled}
+          className="flex items-center justify-center h-5 w-5 rounded-sm text-low hover:text-normal hover:bg-panel transition-colors disabled:opacity-50"
+          aria-label={linearUrl ? 'Edit Linear link' : 'Link Linear ticket'}
+        >
+          <LinkSimpleIcon className="size-icon-xs" weight="bold" />
         </button>
       )}
 
