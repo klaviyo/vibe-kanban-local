@@ -81,7 +81,6 @@ import {
   GitRemote,
   ListPrsError,
   PullRequestDetail,
-  LinkPrToIssueRequest,
   AttachExistingPrRequest,
   AttachPrResponse,
   CreateWorkspaceFromPrBody,
@@ -974,14 +973,6 @@ export const issuePrsApi = {
       `/api/repos/pr-info?url=${encodeURIComponent(url)}`
     );
     return handleApiResponseAsResult<PullRequestDetail, ListPrsError>(response);
-  },
-
-  linkToIssue: async (data: LinkPrToIssueRequest): Promise<void> => {
-    const response = await makeRequest('/api/remote/pull-requests/link', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    await handleApiResponse<void>(response);
   },
 };
 

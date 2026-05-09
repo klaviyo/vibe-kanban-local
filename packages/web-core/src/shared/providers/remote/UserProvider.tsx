@@ -16,10 +16,7 @@ export function UserProvider({ children }: UserProviderProps) {
 
   // Local backend reads owner_user_id from the query string (cloud read it
   // from the JWT). Pass the synthetic user's id explicitly post-cutover.
-  const params = useMemo(
-    () => ({ owner_user_id: userId ?? '' }),
-    [userId]
-  );
+  const params = useMemo(() => ({ owner_user_id: userId ?? '' }), [userId]);
   const enabled = isSignedIn && !!userId;
 
   // Shape subscriptions

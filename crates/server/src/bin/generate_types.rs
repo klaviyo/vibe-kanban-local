@@ -107,7 +107,6 @@ fn generate_types_content() -> String {
         server::routes::workspaces::pr::PrError::decl(),
         server::routes::workspaces::execution::RunScriptError::decl(),
         server::routes::workspaces::attachments::AssociateWorkspaceAttachmentsRequest::decl(),
-        server::routes::remote::pull_requests::LinkPrToIssueRequest::decl(),
         server::routes::workspaces::pr::AttachPrResponse::decl(),
         server::routes::workspaces::pr::AttachExistingPrRequest::decl(),
         server::routes::workspaces::pr::PrCommentsResponse::decl(),

@@ -1,9 +1,11 @@
-use api_types::{PullRequest as WirePullRequest, PullRequestIssue, PullRequestStatus};
+use api_types::{
+    MutationResponse, PullRequest as WirePullRequest, PullRequestIssue, PullRequestStatus,
+};
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::merge::MergeStatus;
+use super::{merge::MergeStatus, mutation_log};
 
 /// Wire-shape `PullRequest` row joined with the local `pull_request_issues`
 /// junction. Used to satisfy `GET /api/remote/pull-requests?issue_id=...`
@@ -11,13 +13,19 @@ use super::merge::MergeStatus;
 pub struct PullRequestIssueRepository;
 
 impl PullRequestIssueRepository {
-    /// Inserts the junction row. Idempotent on `(pull_request_id, issue_id)`.
+    /// Upserts the junction row and returns the resulting `PullRequestIssue`
+    /// in a `MutationResponse`. Idempotent on `(pull_request_id, issue_id)` —
+    /// when the link already exists, the existing row's id is returned (so
+    /// the supplied `id` is only honored on first insert). Allocates a
+    /// mutation-log txid in the same transaction as the insert so the
+    /// returned envelope matches the canonical create-mutation contract.
     pub async fn link(
         pool: &SqlitePool,
+        id: Uuid,
         pull_request_id: &str,
         issue_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        let id = Uuid::new_v4();
+    ) -> Result<MutationResponse<PullRequestIssue>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
         sqlx::query!(
             r#"INSERT INTO pull_request_issues (id, pull_request_id, issue_id)
                VALUES ($1, $2, $3)
@@ -26,9 +34,31 @@ impl PullRequestIssueRepository {
             pull_request_id,
             issue_id,
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(())
+        let row = sqlx::query!(
+            r#"SELECT id              as "id!: Uuid",
+                      pull_request_id as "pull_request_id!: String",
+                      issue_id        as "issue_id!: Uuid"
+               FROM pull_request_issues
+               WHERE pull_request_id = $1 AND issue_id = $2"#,
+            pull_request_id,
+            issue_id,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+
+        Ok(MutationResponse {
+            data: PullRequestIssue {
+                id: row.id,
+                pull_request_id: Uuid::parse_str(&row.pull_request_id)
+                    .unwrap_or_else(|_| Uuid::nil()),
+                issue_id: row.issue_id,
+            },
+            txid,
+        })
     }
 
     /// Returns every PR linked to the given issue, in wire shape. The

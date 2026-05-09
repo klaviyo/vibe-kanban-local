@@ -1559,10 +1559,10 @@ async fn pull_request_issue_list_by_project_returns_linked_prs() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr_a.id, issue_a.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_a.id, issue_a.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr_b.id, issue_b.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_b.id, issue_b.id)
         .await
         .unwrap();
 
@@ -2422,10 +2422,10 @@ async fn pull_request_issue_list_by_issue_returns_linked_prs() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr_one.id, issue.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_one.id, issue.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr_two.id, other_issue.id)
+    PullRequestIssueRepository::link(&pool, Uuid::new_v4(), &pr_two.id, other_issue.id)
         .await
         .unwrap();
 
@@ -2454,12 +2454,20 @@ async fn pull_request_issue_link_is_idempotent() {
         .await
         .unwrap();
 
-    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+    let first_id = Uuid::new_v4();
+    let second_id = Uuid::new_v4();
+    let first = PullRequestIssueRepository::link(&pool, first_id, &pr.id, issue.id)
         .await
         .unwrap();
-    PullRequestIssueRepository::link(&pool, &pr.id, issue.id)
+    let second = PullRequestIssueRepository::link(&pool, second_id, &pr.id, issue.id)
         .await
         .unwrap();
+
+    assert_eq!(first.data.id, first_id);
+    assert_eq!(
+        second.data.id, first_id,
+        "second link must surface the existing junction id, not the rejected new one",
+    );
 
     let listed = PullRequestIssueRepository::list_by_issue(&pool, issue.id)
         .await

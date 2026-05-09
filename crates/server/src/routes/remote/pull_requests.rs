@@ -1,14 +1,18 @@
-use api_types::{ListPullRequestIssuesResponse, ListPullRequestsResponse};
+use api_types::{
+    CreatePullRequestIssueRequest, ListPullRequestIssuesResponse, ListPullRequestsResponse,
+    MutationResponse, PullRequestIssue, PullRequestStatus,
+};
 use axum::{
     Json, Router,
     extract::{Query, State},
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::get,
 };
-use db::models::{pull_request::PullRequest, pull_request_issue::PullRequestIssueRepository};
+use db::models::{
+    merge::MergeStatus, pull_request::PullRequest, pull_request_issue::PullRequestIssueRepository,
+};
 use deployment::Deployment;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -41,8 +45,10 @@ pub(super) struct ListPullRequestIssuesQuery {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/pull-requests", get(list_pull_requests))
-        .route("/pull-requests/link", post(link_pr_to_issue))
-        .route("/pull-request-issues", get(list_pull_request_issues))
+        .route(
+            "/pull-request-issues",
+            get(list_pull_request_issues).post(create_pull_request_issue),
+        )
 }
 
 async fn list_pull_requests(
@@ -90,35 +96,53 @@ async fn list_pull_request_issues(
     )))
 }
 
-/// Tracks a PR in the local database so `pr_monitor` can poll for status
-/// changes, and links it to the supplied issue via the local
-/// `pull_request_issues` junction (mirroring the cloud's join shape).
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct LinkPrToIssueRequest {
-    pub pr_url: String,
-    pub pr_number: i32,
-    pub base_branch: String,
-    pub issue_id: Uuid,
-}
-
-async fn link_pr_to_issue(
+/// Creates (or upserts) the underlying `pull_requests` row from the
+/// supplied PR metadata, then links it to the issue via the
+/// `pull_request_issues` junction. Mirrors the cloud's
+/// `POST /v1/pull_request_issues` create-mutation contract — the kanban
+/// frontend's `useShape` mutation hook posts a `CreatePullRequestIssueRequest`
+/// and expects a `MutationResponse<PullRequestIssue>` back, so the
+/// optimistic insert can reconcile against the persisted junction row.
+async fn create_pull_request_issue(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<LinkPrToIssueRequest>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    Json(request): Json<CreatePullRequestIssueRequest>,
+) -> Result<ResponseJson<ApiResponse<MutationResponse<PullRequestIssue>>>, ApiError> {
     let pool = &deployment.db().pool;
     let pr = PullRequest::create(
         pool,
         None,
         None,
-        &request.pr_url,
-        request.pr_number as i64,
-        &request.base_branch,
+        &request.url,
+        request.number as i64,
+        &request.target_branch_name,
     )
     .await?;
 
-    PullRequestIssueRepository::link(pool, &pr.id, request.issue_id).await?;
+    // PullRequest::create always seeds pr_status='open'. If the linked PR is
+    // already merged or closed, persist the actual status and merge metadata
+    // so the UI reflects reality without waiting for pr_monitor to catch up.
+    if !matches!(request.status, PullRequestStatus::Open)
+        || request.merged_at.is_some()
+        || request.merge_commit_sha.is_some()
+    {
+        let status = match request.status {
+            PullRequestStatus::Open => MergeStatus::Open,
+            PullRequestStatus::Merged => MergeStatus::Merged,
+            PullRequestStatus::Closed => MergeStatus::Closed,
+        };
+        PullRequest::update_status(
+            pool,
+            &request.url,
+            &status,
+            request.merged_at,
+            request.merge_commit_sha.clone(),
+        )
+        .await?;
+    }
 
-    Ok(ResponseJson(ApiResponse::success(())))
+    let id = request.id.unwrap_or_else(Uuid::new_v4);
+    let response = PullRequestIssueRepository::link(pool, id, &pr.id, request.issue_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 #[cfg(test)]
