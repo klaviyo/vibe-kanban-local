@@ -291,7 +291,8 @@ impl Workspace {
             ) > datetime(
                 MAX(
                     CASE
-                        WHEN ep.completed_at IS NOT NULL AND ep.completed_at > w.updated_at
+                        WHEN ep.completed_at IS NOT NULL
+                             AND datetime(ep.completed_at) > datetime(w.updated_at)
                         THEN ep.completed_at
                         ELSE w.updated_at
                     END
@@ -299,7 +300,8 @@ impl Workspace {
             )
             ORDER BY MAX(
                 CASE
-                    WHEN ep.completed_at IS NOT NULL AND ep.completed_at > w.updated_at
+                    WHEN ep.completed_at IS NOT NULL
+                         AND datetime(ep.completed_at) > datetime(w.updated_at)
                     THEN ep.completed_at
                     ELSE w.updated_at
                 END
@@ -747,13 +749,18 @@ mod tests {
         );
     }
 
-    /// Regression test for a Bugbot-flagged issue: the eligibility check must
-    /// use the MOST RECENT of `updated_at` and the latest completed process's
-    /// `completed_at`, not unconditionally prefer `completed_at` whenever one
-    /// exists. A workspace with an old completed session that gets archived
-    /// just now (bumping `updated_at`) must still get the full 15-minute
-    /// grace period, not be swept immediately because of a stale
-    /// `completed_at`.
+    /// Regression test for two Bugbot-flagged issues: the eligibility check
+    /// must use the MOST RECENT of `updated_at` and the latest completed
+    /// process's `completed_at`, not unconditionally prefer `completed_at`
+    /// whenever one exists — and that comparison must go through `datetime()`
+    /// rather than comparing raw TEXT, since `completed_at` (chrono-bound,
+    /// RFC 3339 with a `T` and `+00:00` offset) and `updated_at` (written via
+    /// `set_archived`'s `datetime('now', 'subsec')`, space-separated, no
+    /// offset) are stored in different textual formats that don't sort
+    /// correctly against each other as raw strings. A workspace with an old
+    /// completed session that gets archived just now (bumping `updated_at`)
+    /// must still get the full 15-minute grace period, not be swept
+    /// immediately because of a stale `completed_at`.
     #[tokio::test]
     async fn find_expired_for_cleanup_uses_most_recent_of_updated_at_and_completed_at() {
         let pool = make_pool().await;
@@ -781,7 +788,10 @@ mod tests {
         .unwrap();
 
         let process_id = Uuid::new_v4();
-        let old_completed_at = Utc::now() - Duration::days(3);
+        // Same calendar day as the archive below — this is what actually
+        // exercises the T-vs-space lexical bug (a multi-day gap would sort
+        // correctly on the date-prefix alone, masking it).
+        let old_completed_at = Utc::now() - Duration::minutes(20);
         sqlx::query!(
             "INSERT INTO execution_processes (id, session_id, status, completed_at) VALUES (?, ?, 'completed', ?)",
             process_id,
@@ -792,18 +802,24 @@ mod tests {
         .await
         .unwrap();
 
-        // Archive the workspace just now — updated_at is fresh even though
-        // the session's completed_at is 3 days old.
-        let fresh_updated_at = Utc::now();
         sqlx::query!(
-            "UPDATE workspaces SET container_ref = ?, archived = TRUE, updated_at = ? WHERE id = ?",
+            "UPDATE workspaces SET container_ref = ? WHERE id = ?",
             "/tmp/fake-worktree",
-            fresh_updated_at,
             id
         )
         .execute(&pool)
         .await
         .unwrap();
+
+        // Archive the workspace just now via the real production code path —
+        // Workspace::set_archived writes updated_at as SQLite's
+        // datetime('now', 'subsec') (space-separated, no offset), whereas
+        // completed_at above was bound as a chrono DateTime<Utc> (RFC 3339,
+        // 'T'-separated, +00:00 offset). Comparing the two as raw TEXT
+        // without normalizing through datetime() first is what triggers the
+        // bug: on the same calendar day 'T' > ' ' lexically, so completed_at
+        // always "wins" regardless of which is actually more recent.
+        Workspace::set_archived(&pool, id, true).await.unwrap();
 
         let expired = Workspace::find_expired_for_cleanup(&pool).await.unwrap();
         let expired_ids: Vec<Uuid> = expired.iter().map(|w| w.id).collect();
