@@ -59,6 +59,12 @@ runs:
       if: ${{ inputs.setup-sqlx-cli == 'true' }}
       uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
       with:
-        tool: sqlx-cli
+        # Pinned to match the sqlx version in Cargo.toml. Unpinned (bare
+        # "sqlx-cli"), this floats to whatever's latest on crates.io —
+        # sqlx-cli 0.9.0 requires rustc 1.94+, but RUST_TOOLCHAIN
+        # (rust-toolchain.toml) is pinned to nightly-2025-12-04 (rustc
+        # 1.93.0-nightly), so installs failed. This action has no separate
+        # `version` input — the version must be embedded in `tool` itself.
+        tool: sqlx-cli@0.8.6
         no-default-features: true
         features: sqlite,postgres
