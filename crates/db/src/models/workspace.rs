@@ -250,7 +250,7 @@ impl Workspace {
     }
 
     /// Find workspaces that are expired and eligible for cleanup.
-    /// Uses accelerated cleanup (1 hour) for archived workspaces.
+    /// Uses accelerated cleanup (15 minutes) for archived workspaces.
     /// Uses standard cleanup (72 hours) for non-archived workspaces.
     pub async fn find_expired_for_cleanup(
         pool: &SqlitePool,
@@ -282,18 +282,18 @@ impl Workspace {
                     WHERE ep2.completed_at IS NULL
                 )
             GROUP BY w.id, w.container_ref, w.updated_at
-            HAVING datetime('now', 'localtime',
+            HAVING datetime('now',
                 CASE
                     WHEN w.archived = 1
-                    THEN '-1 hours'
+                    THEN '-15 minutes'
                     ELSE '-72 hours'
                 END
             ) > datetime(
                 MAX(
-                    max(
-                        datetime(w.updated_at),
-                        datetime(ep.completed_at)
-                    )
+                    CASE
+                        WHEN ep.completed_at IS NOT NULL THEN ep.completed_at
+                        ELSE w.updated_at
+                    END
                 )
             )
             ORDER BY MAX(
@@ -672,9 +672,78 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use chrono::{Duration, Utc};
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::Workspace;
+    use super::{CreateWorkspace, Workspace};
+
+    async fn make_pool() -> sqlx::SqlitePool {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Delete)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn make_archived_workspace_with_age(pool: &sqlx::SqlitePool, age: Duration) -> Uuid {
+        let id = Uuid::new_v4();
+        Workspace::create(
+            pool,
+            &CreateWorkspace {
+                branch: format!("branch-{id}"),
+                name: None,
+            },
+            id,
+        )
+        .await
+        .unwrap();
+        let updated_at = Utc::now() - age;
+        sqlx::query!(
+            "UPDATE workspaces SET container_ref = ?, archived = TRUE, updated_at = ? WHERE id = ?",
+            "/tmp/fake-worktree",
+            updated_at,
+            id
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    /// Regression test for a bug where `find_expired_for_cleanup` compared
+    /// `datetime('now', 'localtime')` (host-local wall clock, mislabeled as
+    /// naive UTC) against `updated_at` (real UTC), silently inflating the
+    /// archived-cleanup grace period by the host's UTC offset. Also covers
+    /// the shortened 15-minute archived threshold.
+    #[tokio::test]
+    async fn find_expired_for_cleanup_uses_true_utc_and_15_minute_archived_threshold() {
+        let pool = make_pool().await;
+
+        let stale_id = make_archived_workspace_with_age(&pool, Duration::minutes(16)).await;
+        let fresh_id = make_archived_workspace_with_age(&pool, Duration::minutes(5)).await;
+
+        let expired = Workspace::find_expired_for_cleanup(&pool).await.unwrap();
+        let expired_ids: Vec<Uuid> = expired.iter().map(|w| w.id).collect();
+
+        assert!(
+            expired_ids.contains(&stale_id),
+            "workspace archived 16 minutes ago should be expired under the 15-minute threshold"
+        );
+        assert!(
+            !expired_ids.contains(&fresh_id),
+            "workspace archived 5 minutes ago should not yet be expired"
+        );
+    }
 
     #[test]
     fn best_matching_container_ref_prefers_deepest_match() {

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE workspaces SET container_ref = ?, archived = TRUE, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "c6ecc46192cc7251da45740bd57431fc970cbc5aa48ea36d36823f808a005573"
+}
