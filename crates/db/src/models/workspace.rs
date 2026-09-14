@@ -291,14 +291,16 @@ impl Workspace {
             ) > datetime(
                 MAX(
                     CASE
-                        WHEN ep.completed_at IS NOT NULL THEN ep.completed_at
+                        WHEN ep.completed_at IS NOT NULL AND ep.completed_at > w.updated_at
+                        THEN ep.completed_at
                         ELSE w.updated_at
                     END
                 )
             )
             ORDER BY MAX(
                 CASE
-                    WHEN ep.completed_at IS NOT NULL THEN ep.completed_at
+                    WHEN ep.completed_at IS NOT NULL AND ep.completed_at > w.updated_at
+                    THEN ep.completed_at
                     ELSE w.updated_at
                 END
             ) ASC
@@ -742,6 +744,73 @@ mod tests {
         assert!(
             !expired_ids.contains(&fresh_id),
             "workspace archived 5 minutes ago should not yet be expired"
+        );
+    }
+
+    /// Regression test for a Bugbot-flagged issue: the eligibility check must
+    /// use the MOST RECENT of `updated_at` and the latest completed process's
+    /// `completed_at`, not unconditionally prefer `completed_at` whenever one
+    /// exists. A workspace with an old completed session that gets archived
+    /// just now (bumping `updated_at`) must still get the full 15-minute
+    /// grace period, not be swept immediately because of a stale
+    /// `completed_at`.
+    #[tokio::test]
+    async fn find_expired_for_cleanup_uses_most_recent_of_updated_at_and_completed_at() {
+        let pool = make_pool().await;
+
+        let id = Uuid::new_v4();
+        Workspace::create(
+            &pool,
+            &CreateWorkspace {
+                branch: format!("branch-{id}"),
+                name: None,
+            },
+            id,
+        )
+        .await
+        .unwrap();
+
+        let session_id = Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO sessions (id, workspace_id) VALUES (?, ?)",
+            session_id,
+            id
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let process_id = Uuid::new_v4();
+        let old_completed_at = Utc::now() - Duration::days(3);
+        sqlx::query!(
+            "INSERT INTO execution_processes (id, session_id, status, completed_at) VALUES (?, ?, 'completed', ?)",
+            process_id,
+            session_id,
+            old_completed_at
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Archive the workspace just now — updated_at is fresh even though
+        // the session's completed_at is 3 days old.
+        let fresh_updated_at = Utc::now();
+        sqlx::query!(
+            "UPDATE workspaces SET container_ref = ?, archived = TRUE, updated_at = ? WHERE id = ?",
+            "/tmp/fake-worktree",
+            fresh_updated_at,
+            id
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let expired = Workspace::find_expired_for_cleanup(&pool).await.unwrap();
+        let expired_ids: Vec<Uuid> = expired.iter().map(|w| w.id).collect();
+
+        assert!(
+            !expired_ids.contains(&id),
+            "a workspace archived just now must not be swept because of a stale completed_at"
         );
     }
 
