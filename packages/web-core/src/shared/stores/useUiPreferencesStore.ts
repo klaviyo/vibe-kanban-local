@@ -473,7 +473,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
   workspaceSort: DEFAULT_WORKSPACE_SORT_STATE,
 
   // Kanban view mode state
-  kanbanViewMode: 'kanban' as KanbanViewMode,
+  kanbanViewMode: 'list' as KanbanViewMode,
   listViewStatusFilter: null,
 
   // Mobile tab state
