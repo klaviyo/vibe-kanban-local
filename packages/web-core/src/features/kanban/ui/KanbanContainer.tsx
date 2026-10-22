@@ -475,17 +475,23 @@ export function KanbanContainer() {
     [sortedStatuses]
   );
 
-  // Remembered status tab may have been deleted or un-hidden
+  // Remembered status tab may have been deleted or un-hidden. Only judge it
+  // against statuses of the current project, using the latest store value
+  // rather than a render-time snapshot that may predate the project restore.
   useEffect(() => {
+    const { kanbanViewMode: mode, listViewStatusFilter: statusId } =
+      useUiPreferencesStore.getState();
     if (
-      kanbanViewMode === 'list' &&
-      listViewStatusFilter &&
+      mode === 'list' &&
+      statusId &&
       sortedStatuses.length > 0 &&
-      !hiddenStatuses.some((st) => st.id === listViewStatusFilter)
+      sortedStatuses.every((st) => st.project_id === projectId) &&
+      !hiddenStatuses.some((st) => st.id === statusId)
     ) {
       handleStatusSelect(null);
     }
   }, [
+    projectId,
     kanbanViewMode,
     listViewStatusFilter,
     sortedStatuses,
