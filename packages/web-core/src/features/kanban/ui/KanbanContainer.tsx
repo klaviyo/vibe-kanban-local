@@ -78,6 +78,29 @@ import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
 import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
 import { BulkActionBarContainer } from './BulkActionBarContainer';
 
+const PROJECT_TABS_KEY = 'vk-kanban-project-tabs';
+
+type ProjectTab = { mode: 'kanban' | 'list'; statusId: string | null };
+
+const readProjectTabs = (): Record<string, ProjectTab> => {
+  try {
+    return JSON.parse(localStorage.getItem(PROJECT_TABS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+};
+
+const saveProjectTab = (projectId: string, tab: ProjectTab) => {
+  try {
+    localStorage.setItem(
+      PROJECT_TABS_KEY,
+      JSON.stringify({ ...readProjectTabs(), [projectId]: tab })
+    );
+  } catch {
+    // localStorage may be unavailable
+  }
+};
+
 const areStringSetsEqual = (left: string[], right: string[]): boolean => {
   if (left.length !== right.length) {
     return false;
@@ -392,23 +415,39 @@ export function KanbanContainer() {
   const setListViewStatusFilter = useUiPreferencesStore(
     (s) => s.setListViewStatusFilter
   );
-  // Reset view mode when navigating projects
-  const prevProjectIdRef = useRef<string | null>(null);
-
   // Track when drag-drop sync is in progress to prevent flicker
   const isSyncingRef = useRef(false);
 
+  // Restore the project's remembered tab (All if none) when switching projects
   useEffect(() => {
-    if (
-      prevProjectIdRef.current !== null &&
-      prevProjectIdRef.current !== projectId
-    ) {
-      setKanbanViewMode('kanban');
-      setListViewStatusFilter(null);
-    }
-
-    prevProjectIdRef.current = projectId;
+    const saved = readProjectTabs()[projectId];
+    setKanbanViewMode(saved?.mode === 'kanban' ? 'kanban' : 'list');
+    setListViewStatusFilter(
+      saved?.mode === 'list' ? (saved.statusId ?? null) : null
+    );
   }, [projectId, setKanbanViewMode, setListViewStatusFilter]);
+
+  const handleViewChange = useCallback(
+    (mode: 'kanban' | 'list') => {
+      setKanbanViewMode(mode);
+      saveProjectTab(projectId, {
+        mode,
+        statusId: useUiPreferencesStore.getState().listViewStatusFilter,
+      });
+    },
+    [projectId, setKanbanViewMode]
+  );
+
+  const handleStatusSelect = useCallback(
+    (statusId: string | null) => {
+      setListViewStatusFilter(statusId);
+      saveProjectTab(projectId, {
+        mode: useUiPreferencesStore.getState().kanbanViewMode,
+        statusId,
+      });
+    },
+    [projectId, setListViewStatusFilter]
+  );
 
   // Sort all statuses for display settings
   const sortedStatuses = useMemo(
@@ -435,6 +474,24 @@ export function KanbanContainer() {
     () => sortedStatuses.filter((s) => s.hidden),
     [sortedStatuses]
   );
+
+  // Remembered status tab may have been deleted or un-hidden
+  useEffect(() => {
+    if (
+      kanbanViewMode === 'list' &&
+      listViewStatusFilter &&
+      sortedStatuses.length > 0 &&
+      !hiddenStatuses.some((st) => st.id === listViewStatusFilter)
+    ) {
+      handleStatusSelect(null);
+    }
+  }, [
+    kanbanViewMode,
+    listViewStatusFilter,
+    sortedStatuses,
+    hiddenStatuses,
+    handleStatusSelect,
+  ]);
 
   const defaultCreateStatusId = useMemo(() => {
     if (kanbanViewMode === 'kanban') {
@@ -1028,10 +1085,10 @@ export function KanbanContainer() {
         >
           <ViewNavTabs
             activeView={kanbanViewMode}
-            onViewChange={setKanbanViewMode}
+            onViewChange={handleViewChange}
             hiddenStatuses={hiddenStatuses}
             selectedStatusId={listViewStatusFilter}
-            onStatusSelect={setListViewStatusFilter}
+            onStatusSelect={handleStatusSelect}
           />
           <KanbanFilterBar
             isFiltersDialogOpen={isFiltersDialogOpen}

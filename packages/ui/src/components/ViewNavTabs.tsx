@@ -35,17 +35,6 @@ export function ViewNavTabs({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-base">
       <ButtonGroup className={cn('flex-wrap', className)}>
-        {/* Active (Kanban) tab */}
-        <ButtonGroupItem
-          active={isActiveTab}
-          onClick={() => {
-            onViewChange('kanban');
-            onStatusSelect(null);
-          }}
-        >
-          {t('kanban.viewTabs.active')}
-        </ButtonGroupItem>
-
         {/* All (List) tab */}
         <ButtonGroupItem
           active={isAllTab}
@@ -55,6 +44,17 @@ export function ViewNavTabs({
           }}
         >
           {t('kanban.viewTabs.all')}
+        </ButtonGroupItem>
+
+        {/* Active (Kanban) tab */}
+        <ButtonGroupItem
+          active={isActiveTab}
+          onClick={() => {
+            onViewChange('kanban');
+            onStatusSelect(null);
+          }}
+        >
+          {t('kanban.viewTabs.active')}
         </ButtonGroupItem>
 
         {/* Hidden status tabs */}
