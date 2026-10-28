@@ -62,25 +62,12 @@ impl PullRequestIssueRepository {
         })
     }
 
-    /// Removes link rows matching `WHERE <clause>` and drops any
-    /// workspace-less `pull_requests` row left without links, so the PR
-    /// monitor stops polling PRs that only existed to back the link.
-    async fn delete_links(
-        pool: &SqlitePool,
-        clause: &str,
-        binds: &[String],
-    ) -> Result<DeleteResponse, sqlx::Error> {
-        let mut tx = pool.begin().await?;
-        let select_sql = format!("SELECT pull_request_id FROM pull_request_issues WHERE {clause}");
-        let delete_sql = format!("DELETE FROM pull_request_issues WHERE {clause}");
-        let mut select = sqlx::query_scalar::<_, String>(&select_sql);
-        let mut delete = sqlx::query(&delete_sql);
-        for b in binds {
-            select = select.bind(b.clone());
-            delete = delete.bind(b.clone());
-        }
-        let pr_ids = select.fetch_all(&mut *tx).await?;
-        delete.execute(&mut *tx).await?;
+    /// Drops workspace-less `pull_requests` rows left without links, so the
+    /// PR monitor stops polling PRs that only existed to back a link.
+    async fn drop_orphan_prs(
+        tx: &mut sqlx::SqliteConnection,
+        pr_ids: Vec<String>,
+    ) -> Result<(), sqlx::Error> {
         for pr_id in pr_ids {
             sqlx::query(
                 "DELETE FROM pull_requests WHERE id = $1 AND workspace_id IS NULL
@@ -90,13 +77,25 @@ impl PullRequestIssueRepository {
             .execute(&mut *tx)
             .await?;
         }
-        let txid = mutation_log::next_txid(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(DeleteResponse { txid })
+        Ok(())
     }
 
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
-        Self::delete_links(pool, "id = $1", &[id.to_string()]).await
+        let mut tx = pool.begin().await?;
+        let pr_ids = sqlx::query_scalar::<_, String>(
+            "SELECT pull_request_id FROM pull_request_issues WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM pull_request_issues WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        Self::drop_orphan_prs(&mut tx, pr_ids).await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 
     pub async fn delete_by_issue_and_url(
@@ -104,12 +103,29 @@ impl PullRequestIssueRepository {
         issue_id: Uuid,
         pr_url: &str,
     ) -> Result<DeleteResponse, sqlx::Error> {
-        Self::delete_links(
-            pool,
-            "issue_id = $1 AND pull_request_id IN (SELECT id FROM pull_requests WHERE pr_url = $2)",
-            &[issue_id.to_string(), pr_url.to_string()],
+        let mut tx = pool.begin().await?;
+        let pr_ids = sqlx::query_scalar::<_, String>(
+            "SELECT pull_request_id FROM pull_request_issues
+             WHERE issue_id = $1
+               AND pull_request_id IN (SELECT id FROM pull_requests WHERE pr_url = $2)",
         )
-        .await
+        .bind(issue_id)
+        .bind(pr_url)
+        .fetch_all(&mut *tx)
+        .await?;
+        sqlx::query(
+            "DELETE FROM pull_request_issues
+             WHERE issue_id = $1
+               AND pull_request_id IN (SELECT id FROM pull_requests WHERE pr_url = $2)",
+        )
+        .bind(issue_id)
+        .bind(pr_url)
+        .execute(&mut *tx)
+        .await?;
+        Self::drop_orphan_prs(&mut tx, pr_ids).await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
     }
 
     /// Returns every PR linked to the given issue, in wire shape. The
@@ -273,5 +289,77 @@ fn merge_status_to_wire(status: &MergeStatus) -> PullRequestStatus {
         MergeStatus::Open | MergeStatus::Unknown => PullRequestStatus::Open,
         MergeStatus::Merged => PullRequestStatus::Merged,
         MergeStatus::Closed => PullRequestStatus::Closed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    async fn pool_with_link(issue_id: Uuid, link_id: Uuid) -> SqlitePool {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO pull_requests (id, pr_url, pr_number, target_branch_name)
+             VALUES ('pr-1', 'https://github.com/o/r/pull/1', 1, 'main')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        PullRequestIssueRepository::link(&pool, link_id, "pr-1", issue_id)
+            .await
+            .unwrap();
+        pool
+    }
+
+    async fn counts(pool: &SqlitePool) -> (i64, i64) {
+        let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pull_request_issues")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let prs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pull_requests")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        (links, prs)
+    }
+
+    #[tokio::test]
+    async fn delete_by_id_removes_link_and_orphan_pr() {
+        let (issue_id, link_id) = (Uuid::new_v4(), Uuid::new_v4());
+        let pool = pool_with_link(issue_id, link_id).await;
+        PullRequestIssueRepository::delete(&pool, link_id)
+            .await
+            .unwrap();
+        assert_eq!(counts(&pool).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn delete_by_issue_and_url_removes_link_and_orphan_pr() {
+        let (issue_id, link_id) = (Uuid::new_v4(), Uuid::new_v4());
+        let pool = pool_with_link(issue_id, link_id).await;
+        PullRequestIssueRepository::delete_by_issue_and_url(
+            &pool,
+            issue_id,
+            "https://github.com/o/r/pull/1",
+        )
+        .await
+        .unwrap();
+        assert_eq!(counts(&pool).await, (0, 0));
     }
 }
