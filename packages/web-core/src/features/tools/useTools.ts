@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useToastStore } from '@/shared/stores/useToastStore';
+import { useToolRunStore } from '@/shared/stores/useToolRunStore';
 import { toolsApi, type RunToolRequest, type Tool } from './toolsApi';
 
 const TOOLS_QUERY_KEY = ['tools'];
@@ -18,6 +19,8 @@ export function useTools() {
 
   const runTool = useCallback(
     async (tool: Tool, request: Omit<RunToolRequest, 'tool_id'>) => {
+      const { start, finish } = useToolRunStore.getState();
+      start(tool.id);
       try {
         const result = await toolsApi.run({ tool_id: tool.id, ...request });
         const detail = result.output || undefined;
@@ -42,6 +45,8 @@ export function useTools() {
           detail: err instanceof Error ? err.message : String(err),
           tone: 'error',
         });
+      } finally {
+        finish(tool.id);
       }
     },
     [showToast]

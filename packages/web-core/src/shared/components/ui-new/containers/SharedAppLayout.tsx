@@ -8,6 +8,7 @@ import { ToastHost } from '@/shared/components/ToastHost';
 import { ToolTicketDrop } from '@/features/tools/ToolTicketDrop';
 import { renderToolIcon } from '@/features/tools/toolIcons';
 import { useTools } from '@/features/tools/useTools';
+import { useToolRunStore } from '@/shared/stores/useToolRunStore';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { cn } from '@/shared/lib/utils';
 import { isTauriMac } from '@/shared/lib/platform';
@@ -51,6 +52,7 @@ import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHos
 export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
   const { tools, runTool } = useTools();
+  const runningTools = useToolRunStore((s) => s.running);
   const appBarTools = useMemo(
     () =>
       tools.map((tool) => ({
@@ -60,8 +62,9 @@ export function SharedAppLayout() {
         icon: renderToolIcon(tool.icon),
         clickOptions: tool.click.options,
         canDropOnTicket: tool.ticket.options.length > 0,
+        isRunning: (runningTools[tool.id] ?? 0) > 0,
       })),
-    [tools]
+    [tools, runningTools]
   );
   const handleToolRun = useCallback(
     (toolId: string, optionId?: string) => {
