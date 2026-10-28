@@ -218,6 +218,33 @@ impl ProjectRow {
         id: Uuid,
         data: &UpdateProjectRequest,
     ) -> Result<MutationResponse<Self>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let row = Self::update_in_tx(&mut tx, id, data).await?;
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: row, txid })
+    }
+
+    /// Applies every update in one transaction under a single mutation txid.
+    pub async fn update_many(
+        pool: &SqlitePool,
+        updates: &[(Uuid, UpdateProjectRequest)],
+    ) -> Result<MutationResponse<Vec<Self>>, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let mut rows = Vec::with_capacity(updates.len());
+        for (id, data) in updates {
+            rows.push(Self::update_in_tx(&mut tx, *id, data).await?);
+        }
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MutationResponse { data: rows, txid })
+    }
+
+    async fn update_in_tx(
+        tx: &mut sqlx::SqliteConnection,
+        id: Uuid,
+        data: &UpdateProjectRequest,
+    ) -> Result<Self, sqlx::Error> {
         let update_name = data.name.is_some();
         let name_value = data.name.clone();
         let update_color = data.color.is_some();
@@ -225,7 +252,6 @@ impl ProjectRow {
         let update_sort_order = data.sort_order.is_some();
         let sort_order_value = data.sort_order.map(i64::from);
 
-        let mut tx = pool.begin().await?;
         let row = sqlx::query_as!(
             ProjectRow,
             r#"UPDATE projects
@@ -251,9 +277,7 @@ impl ProjectRow {
         )
         .fetch_one(&mut *tx)
         .await?;
-        let txid = mutation_log::next_txid(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(MutationResponse { data: row, txid })
+        Ok(row)
     }
 
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
@@ -303,5 +327,60 @@ impl TryFrom<ProjectRow> for wire::Project {
             created_at: value.created_at,
             updated_at: value.updated_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn update_many_persists_sort_order() {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:").unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (org, a, b) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        for (id, name, order) in [(a, "a", 0), (b, "b", 1)] {
+            sqlx::query(
+                "INSERT INTO projects (id, name, organization_id, sort_order) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(id)
+            .bind(name)
+            .bind(org)
+            .bind(order)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let swap = |sort_order| UpdateProjectRequest {
+            name: None,
+            color: None,
+            sort_order: Some(sort_order),
+        };
+        let response = ProjectRow::update_many(&pool, &[(a, swap(1)), (b, swap(0))])
+            .await
+            .unwrap();
+        assert_eq!(response.data.len(), 2);
+
+        let ordered: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM projects ORDER BY sort_order")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(ordered, ["b", "a"]);
     }
 }
