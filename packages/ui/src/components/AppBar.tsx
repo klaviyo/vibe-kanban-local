@@ -572,7 +572,10 @@ export function AppBar({
       )}
     >
       {sections.map((section) => (
-        <div key={section.key} className="flex flex-col items-center gap-1">
+        <div
+          key={section.key}
+          className="flex flex-col items-center gap-1 mt-half first:mt-0"
+        >
           <AppBarSectionLabel>{section.label}</AppBarSectionLabel>
           {section.items.map((item) => (
             <div
