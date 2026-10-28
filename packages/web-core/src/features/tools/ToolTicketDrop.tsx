@@ -4,7 +4,9 @@ import { APP_BAR_TOOL_DRAG_TYPE } from '@vibe/ui/components/AppBar';
 import { useTools } from './useTools';
 
 const ISSUE_SELECTOR = '[data-issue-id]';
-const HOVER_OUTLINE = '2px solid hsl(var(--brand))';
+// A background tint, not a border: borders on adjacent rows read as an
+// insertion marker rather than a drop target.
+const HOVER_BACKGROUND = 'hsl(var(--brand) / 0.2)';
 
 interface PendingDrop {
   toolId: string;
@@ -34,7 +36,7 @@ export function ToolTicketDrop() {
   useEffect(() => {
     let hovered: HTMLElement | null = null;
     const clearHover = () => {
-      if (hovered) hovered.style.outline = '';
+      if (hovered) hovered.style.backgroundColor = '';
       hovered = null;
     };
 
@@ -50,7 +52,7 @@ export function ToolTicketDrop() {
       if (hovered !== el) {
         clearHover();
         hovered = el;
-        el.style.outline = HOVER_OUTLINE;
+        el.style.backgroundColor = HOVER_BACKGROUND;
       }
     };
     const onDrop = (e: DragEvent) => {
