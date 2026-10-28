@@ -105,6 +105,16 @@ struct LoadedTools {
     errors: Vec<String>,
 }
 
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+fn has_path_separator(program: &str) -> bool {
+    program.contains('/') || (cfg!(windows) && program.contains('\\'))
+}
+
 fn config_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(dir) = std::env::current_exe()
@@ -116,8 +126,8 @@ fn config_paths() -> Vec<PathBuf> {
     if let Some(path) = std::env::var_os("VK_TOOLS_CONFIG") {
         paths.push(PathBuf::from(path));
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        paths.push(PathBuf::from(home).join(format!(".{CONFIG_FILE_NAME}")));
+    if let Some(home) = home_dir() {
+        paths.push(home.join(format!(".{CONFIG_FILE_NAME}")));
     }
     paths
 }
@@ -267,12 +277,15 @@ fn substitute(arg: &str, subs: &Substitutions) -> String {
 /// `~/x` expands to the home directory; paths containing a separator resolve
 /// against the config file's directory; bare names are left to `$PATH`.
 fn resolve_program(program: &str, base_dir: &Path) -> OsString {
-    if let Some(rest) = program.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
+    let tilde_rest = program
+        .strip_prefix("~/")
+        .or_else(|| cfg!(windows).then(|| program.strip_prefix("~\\")).flatten());
+    if let Some(rest) = tilde_rest
+        && let Some(home) = home_dir()
     {
-        return PathBuf::from(home).join(rest).into_os_string();
+        return home.join(rest).into_os_string();
     }
-    if program.contains('/') && !Path::new(program).is_absolute() {
+    if has_path_separator(program) && !Path::new(program).is_absolute() {
         return base_dir.join(program).into_os_string();
     }
     OsString::from(program)
@@ -692,6 +705,14 @@ mod tests {
         let inv = build_invocation(&command, Path::new("/cfg"), &subs).unwrap();
         assert_eq!(inv.program, OsString::from("/cfg/./run.sh"));
         assert_eq!(inv.args, ["retry", "VK-1; rm -rf /"]);
+    }
+
+    #[test]
+    fn only_names_with_a_separator_resolve_against_the_config_dir() {
+        assert!(has_path_separator("./run.sh"));
+        assert!(has_path_separator("tools/run.sh"));
+        assert!(!has_path_separator("claude"));
+        assert_eq!(has_path_separator(".\\run.exe"), cfg!(windows));
     }
 
     #[test]

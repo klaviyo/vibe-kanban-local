@@ -5,6 +5,7 @@ import { XIcon, PlusIcon, LayoutIcon, KanbanIcon } from '@phosphor-icons/react';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { ToastHost } from '@/shared/components/ToastHost';
+import { useToastStore } from '@/shared/stores/useToastStore';
 import { ToolTicketDrop } from '@/features/tools/ToolTicketDrop';
 import { renderToolIcon } from '@/features/tools/toolIcons';
 import { ToolMenu } from '@/features/tools/ToolMenu';
@@ -52,7 +53,17 @@ import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHos
 
 export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
-  const { tools, runTool } = useTools();
+  const { tools, runTool, configErrors } = useTools();
+  const showToast = useToastStore((s) => s.show);
+  const configErrorsKey = configErrors.join('\n');
+  useEffect(() => {
+    if (!configErrorsKey) return;
+    showToast({
+      title: 'Tools config problem',
+      detail: configErrorsKey,
+      tone: 'error',
+    });
+  }, [configErrorsKey, showToast]);
   const runningTools = useToolRunStore((s) => s.running);
   const appBarTools = useMemo(
     () =>

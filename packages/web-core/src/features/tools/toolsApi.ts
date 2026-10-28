@@ -1,5 +1,9 @@
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 
+// Tool config and ticket ids belong to this server, so never route these to a
+// remote host the app happens to be viewing.
+const LOCAL_BACKEND = { hostScope: 'none' } as const;
+
 export interface ToolOption {
   id: string;
   title: string;
@@ -63,11 +67,14 @@ async function unwrap<T>(response: Response): Promise<T> {
 
 export const toolsApi = {
   list: async (): Promise<ToolsResponse> =>
-    unwrap<ToolsResponse>(await makeLocalApiRequest('/api/tools')),
+    unwrap<ToolsResponse>(
+      await makeLocalApiRequest('/api/tools', LOCAL_BACKEND)
+    ),
   menu: async (request: MenuRequest): Promise<MenuItem[]> =>
     (
       await unwrap<{ items: MenuItem[] }>(
         await makeLocalApiRequest('/api/tools/menu', {
+          ...LOCAL_BACKEND,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
@@ -77,6 +84,7 @@ export const toolsApi = {
   run: async (request: RunToolRequest): Promise<RunToolResult> =>
     unwrap<RunToolResult>(
       await makeLocalApiRequest('/api/tools/run', {
+        ...LOCAL_BACKEND,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
