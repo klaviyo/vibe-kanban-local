@@ -4,7 +4,7 @@ import {
   Droppable,
   type DropResult,
 } from '@hello-pangea/dnd';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   LayoutIcon,
   PlusIcon,
@@ -40,6 +40,7 @@ interface AppBarProps {
   onCreateProject: () => void;
   tools?: AppBarTool[];
   onToolRun?: (toolId: string, optionId?: string) => void;
+  renderToolMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
   onWorkspacesClick: () => void;
   onHostClick?: (hostId: string, status: AppBarHostStatus) => void;
   showWorkspacesButton?: boolean;
@@ -68,8 +69,8 @@ export interface AppBarTool {
   title: string;
   color?: string | null;
   icon: ReactNode;
-  /** Options shown in a menu on click; empty runs the tool directly. */
-  clickOptions: { id: string; title: string }[];
+  /** Click opens a menu (rendered by `renderToolMenu`) instead of running. */
+  hasMenu: boolean;
   /** Whether the button can be dragged onto a ticket. */
   canDropOnTicket: boolean;
   /** A run is in flight; the button shows a spinner and ignores clicks. */
@@ -143,6 +144,7 @@ type AppBarSectionItem =
       kind: 'tool-list';
       tools: AppBarTool[];
       onRun?: (toolId: string, optionId?: string) => void;
+      renderMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
     }
   | {
       key: string;
@@ -202,6 +204,64 @@ function getHostButtonClassName({
   );
 }
 
+function AppBarToolButton({
+  tool,
+  onRun,
+  renderMenu,
+}: {
+  tool: AppBarTool;
+  onRun?: (toolId: string, optionId?: string) => void;
+  renderMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const button = (
+    <button
+      type="button"
+      draggable={tool.canDropOnTicket && !tool.isRunning}
+      disabled={tool.isRunning}
+      aria-busy={tool.isRunning}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(APP_BAR_TOOL_DRAG_TYPE, tool.id);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onClick={tool.hasMenu ? undefined : () => onRun?.(tool.id)}
+      className={getStandardAppBarButtonClassName({
+        className: tool.isRunning ? 'cursor-progress opacity-80' : undefined,
+      })}
+      style={tool.color ? { color: tool.color } : undefined}
+      aria-label={tool.title}
+    >
+      {tool.isRunning ? (
+        <SpinnerIcon className="size-icon-base animate-spin" weight="bold" />
+      ) : (
+        tool.icon
+      )}
+    </button>
+  );
+
+  if (!tool.hasMenu) {
+    return (
+      <Tooltip content={tool.title} side="right">
+        {button}
+      </Tooltip>
+    );
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip content={tool.title} side="right">
+        <PopoverTrigger asChild>{button}</PopoverTrigger>
+      </Tooltip>
+      <PopoverContent
+        side="right"
+        sideOffset={8}
+        className="w-auto min-w-48 max-w-80 p-1"
+      >
+        {renderMenu?.(tool, () => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function AppBar({
   projects,
   hosts = [],
@@ -209,6 +269,7 @@ export function AppBar({
   onCreateProject,
   tools = [],
   onToolRun,
+  renderToolMenu,
   onWorkspacesClick,
   onHostClick,
   showWorkspacesButton = true,
@@ -327,68 +388,10 @@ export function AppBar({
           kind: 'tool-list' as const,
           tools,
           onRun: onToolRun,
+          renderMenu: renderToolMenu,
         },
       ],
     });
-  }
-
-  function renderToolButton(
-    tool: AppBarTool,
-    onRun?: (toolId: string, optionId?: string) => void
-  ): ReactNode {
-    const hasMenu = tool.clickOptions.length > 0;
-    const button = (
-      <button
-        type="button"
-        draggable={tool.canDropOnTicket && !tool.isRunning}
-        disabled={tool.isRunning}
-        aria-busy={tool.isRunning}
-        onDragStart={(e) => {
-          e.dataTransfer.setData(APP_BAR_TOOL_DRAG_TYPE, tool.id);
-          e.dataTransfer.effectAllowed = 'copy';
-        }}
-        onClick={hasMenu ? undefined : () => onRun?.(tool.id)}
-        className={getStandardAppBarButtonClassName({
-          className: tool.isRunning ? 'cursor-progress opacity-80' : undefined,
-        })}
-        style={tool.color ? { color: tool.color } : undefined}
-        aria-label={tool.title}
-      >
-        {tool.isRunning ? (
-          <SpinnerIcon className="size-icon-base animate-spin" weight="bold" />
-        ) : (
-          tool.icon
-        )}
-      </button>
-    );
-
-    if (!hasMenu) {
-      return (
-        <Tooltip content={tool.title} side="right">
-          {button}
-        </Tooltip>
-      );
-    }
-    return (
-      <Popover>
-        <Tooltip content={tool.title} side="right">
-          <PopoverTrigger asChild>{button}</PopoverTrigger>
-        </Tooltip>
-        <PopoverContent side="right" sideOffset={8} className="w-48 p-1">
-          {tool.clickOptions.map((option) => (
-            <PopoverClose asChild key={option.id}>
-              <button
-                type="button"
-                onClick={() => onRun?.(tool.id, option.id)}
-                className="block w-full rounded-sm px-base py-half text-left text-sm text-normal hover:bg-secondary"
-              >
-                {option.title}
-              </button>
-            </PopoverClose>
-          ))}
-        </PopoverContent>
-      </Popover>
-    );
   }
 
   function renderSectionItem(item: AppBarSectionItem): ReactNode {
@@ -413,7 +416,12 @@ export function AppBar({
         return (
           <div className="flex flex-col items-center gap-base">
             {item.tools.map((tool) => (
-              <div key={tool.id}>{renderToolButton(tool, item.onRun)}</div>
+              <AppBarToolButton
+                key={tool.id}
+                tool={tool}
+                onRun={item.onRun}
+                renderMenu={item.renderMenu}
+              />
             ))}
           </div>
         );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { APP_BAR_TOOL_DRAG_TYPE } from '@vibe/ui/components/AppBar';
+import { ToolMenu } from './ToolMenu';
 import { useTools } from './useTools';
 
 const ISSUE_SELECTOR = '[data-issue-id]';
@@ -30,7 +31,7 @@ function isToolDrag(e: DragEvent): boolean {
  * row, marked with `data-issue-id`) and shows that tool's ticket options.
  */
 export function ToolTicketDrop() {
-  const { tools, runTool } = useTools();
+  const { tools } = useTools();
   const [pending, setPending] = useState<PendingDrop | null>(null);
 
   useEffect(() => {
@@ -95,37 +96,18 @@ export function ToolTicketDrop() {
     <>
       <div className="fixed inset-0 z-[10000]" onMouseDown={close} />
       <div
-        role="menu"
-        className="fixed z-[10001] min-w-40 rounded-sm border border-border bg-panel p-1 shadow-md"
+        className="fixed z-[10001] rounded-sm border border-border bg-panel p-1 shadow-md"
         style={{
-          left: Math.min(pending.x, window.innerWidth - 200),
-          top: Math.min(
-            pending.y,
-            window.innerHeight - 40 * (tool.ticket.options.length + 1)
-          ),
+          left: Math.min(pending.x, window.innerWidth - 340),
+          top: Math.min(pending.y, window.innerHeight - 200),
         }}
       >
-        <p className="px-base py-half text-xs font-medium text-low">
-          {tool.title}
-        </p>
-        {tool.ticket.options.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              close();
-              void runTool(tool, {
-                target: 'ticket',
-                option_id: option.id,
-                issue_id: pending.issueId,
-              });
-            }}
-            className="block w-full rounded-sm px-base py-half text-left text-sm text-normal hover:bg-secondary"
-          >
-            {option.title}
-          </button>
-        ))}
+        <ToolMenu
+          tool={tool}
+          target="ticket"
+          issueId={pending.issueId}
+          onDone={close}
+        />
       </div>
     </>,
     document.body

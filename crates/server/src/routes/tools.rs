@@ -34,11 +34,17 @@ use crate::{DeploymentImpl, error::ApiError};
 const CONFIG_FILE_NAME: &str = "vibe-kanban-tools.json";
 const RUN_TIMEOUT: Duration = Duration::from_secs(30);
 const OUTPUT_TAIL_BYTES: u64 = 4000;
+const DEFAULT_MENU_TIMEOUT_SECS: u64 = 10;
+const MAX_MENU_TIMEOUT_SECS: u64 = 30;
+const MAX_MENU_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_MENU_ITEMS: usize = 100;
+const MAX_OPTION_ID_LEN: usize = 200;
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/tools", get(list_tools))
         .route("/tools/run", post(run_tool))
+        .route("/tools/menu", post(tool_menu))
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -66,8 +72,16 @@ struct ToolConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ToolTarget {
+    /// Static menu options.
     #[serde(default)]
     options: Vec<ToolOption>,
+    /// Command whose stdout is a JSON array of menu items, run each time the
+    /// menu opens. Takes the same placeholders as `command`. When set, any
+    /// non-empty option id from the menu may be run; static `options` act as
+    /// the fallback if the command fails.
+    options_command: Option<Vec<String>>,
+    /// Seconds to wait for `options_command` (default 10, max 30).
+    options_timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -157,6 +171,8 @@ struct OptionView {
 #[derive(Debug, Serialize)]
 struct TargetView {
     options: Vec<OptionView>,
+    /// The menu is produced by a script each time it opens.
+    dynamic: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -185,6 +201,7 @@ fn target_view(target: &ToolTarget) -> TargetView {
                 title: o.title.clone(),
             })
             .collect(),
+        dynamic: target.options_command.is_some(),
     }
 }
 
@@ -343,61 +360,43 @@ async fn find_issue(
         .await
 }
 
-async fn run_tool(
-    State(deployment): State<DeploymentImpl>,
-    Json(request): Json<RunToolRequest>,
-) -> Result<ResponseJson<ApiResponse<RunToolResponse>>, ApiError> {
-    let loaded = load_tools(&config_paths());
-    let tool = loaded
-        .tools
-        .iter()
-        .find(|t| t.config.id == request.tool_id)
-        .ok_or_else(|| ApiError::BadRequest(format!("unknown tool: {}", request.tool_id)))?;
-
-    let target = match request.target {
-        RunTarget::Click => &tool.config.click,
-        RunTarget::Ticket => &tool.config.ticket,
-    };
-    let option = match request.option_id.as_deref() {
-        Some(id) => Some(
-            target
-                .options
-                .iter()
-                .find(|o| o.id == id)
-                .ok_or_else(|| ApiError::BadRequest(format!("unknown option: {id}")))?,
-        ),
-        None if target.options.is_empty() => None,
-        None => return Err(ApiError::BadRequest("option_id is required".to_string())),
-    };
-    let command = option
-        .and_then(|o| o.command.as_ref())
-        .or(tool.config.command.as_ref())
-        .ok_or_else(|| ApiError::BadRequest("tool has no command".to_string()))?;
-
+/// Resolves the placeholder values for a run or menu request. A ticket
+/// target needs `issue_id`; its key and project come from the database, never
+/// from the client.
+async fn build_substitutions(
+    pool: &sqlx::SqlitePool,
+    target: RunTarget,
+    issue_id: Option<Uuid>,
+    option: &str,
+) -> Result<Substitutions, ApiError> {
     let mut subs = Substitutions {
-        option: option.map(|o| o.id.clone()).unwrap_or_default(),
+        option: option.to_string(),
         ..Default::default()
     };
-    if request.target == RunTarget::Ticket {
-        let issue_id = request
-            .issue_id
-            .ok_or_else(|| ApiError::BadRequest("issue_id is required".to_string()))?;
-        let (issue_key, project_id) = find_issue(&deployment.db().pool, issue_id)
+    if target == RunTarget::Ticket {
+        let issue_id =
+            issue_id.ok_or_else(|| ApiError::BadRequest("issue_id is required".to_string()))?;
+        let (issue_key, project_id) = find_issue(pool, issue_id)
             .await?
             .ok_or_else(|| ApiError::BadRequest("issue not found".to_string()))?;
         subs.issue_id = issue_id.to_string();
         subs.issue_key = issue_key;
         subs.project_id = project_id.to_string();
     }
+    Ok(subs)
+}
 
-    let invocation = build_invocation(command, &tool.base_dir, &subs)
-        .ok_or_else(|| ApiError::BadRequest("tool command is empty".to_string()))?;
-    let envs = vec![
-        ("VK_TOOL_ID", tool.config.id.clone()),
+fn tool_envs(
+    tool_id: &str,
+    target: RunTarget,
+    subs: &Substitutions,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("VK_TOOL_ID", tool_id.to_string()),
         ("VK_TOOL_OPTION", subs.option.clone()),
         (
             "VK_TOOL_TARGET",
-            match request.target {
+            match target {
                 RunTarget::Click => "click".to_string(),
                 RunTarget::Ticket => "ticket".to_string(),
             },
@@ -405,7 +404,63 @@ async fn run_tool(
         ("VK_ISSUE_ID", subs.issue_id.clone()),
         ("VK_ISSUE_KEY", subs.issue_key.clone()),
         ("VK_PROJECT_ID", subs.project_id.clone()),
-    ];
+    ]
+}
+
+fn find_tool<'a>(loaded: &'a LoadedTools, tool_id: &str) -> Result<&'a LoadedTool, ApiError> {
+    loaded
+        .tools
+        .iter()
+        .find(|t| t.config.id == tool_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("unknown tool: {tool_id}")))
+}
+
+fn valid_dynamic_option_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_OPTION_ID_LEN && !id.chars().any(char::is_control)
+}
+
+async fn run_tool(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<RunToolRequest>,
+) -> Result<ResponseJson<ApiResponse<RunToolResponse>>, ApiError> {
+    let loaded = load_tools(&config_paths());
+    let tool = find_tool(&loaded, &request.tool_id)?;
+
+    let target = match request.target {
+        RunTarget::Click => &tool.config.click,
+        RunTarget::Ticket => &tool.config.ticket,
+    };
+    let option_id = request.option_id.as_deref();
+    let static_option = option_id.and_then(|id| target.options.iter().find(|o| o.id == id));
+    match option_id {
+        Some(id) if static_option.is_none() => {
+            if target.options_command.is_none() {
+                return Err(ApiError::BadRequest(format!("unknown option: {id}")));
+            }
+            if !valid_dynamic_option_id(id) {
+                return Err(ApiError::BadRequest("invalid option id".to_string()));
+            }
+        }
+        None if !target.options.is_empty() || target.options_command.is_some() => {
+            return Err(ApiError::BadRequest("option_id is required".to_string()));
+        }
+        _ => {}
+    }
+    let command = static_option
+        .and_then(|o| o.command.as_ref())
+        .or(tool.config.command.as_ref())
+        .ok_or_else(|| ApiError::BadRequest("tool has no command".to_string()))?;
+
+    let subs = build_substitutions(
+        &deployment.db().pool,
+        request.target,
+        request.issue_id,
+        option_id.unwrap_or_default(),
+    )
+    .await?;
+    let invocation = build_invocation(command, &tool.base_dir, &subs)
+        .ok_or_else(|| ApiError::BadRequest("tool command is empty".to_string()))?;
+    let envs = tool_envs(&tool.config.id, request.target, &subs);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -416,6 +471,167 @@ async fn run_tool(
 
     let response = run_command(invocation, &tool.base_dir, envs, &log_path, RUN_TIMEOUT).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+#[derive(Debug, Deserialize)]
+struct MenuRequest {
+    tool_id: String,
+    target: RunTarget,
+    issue_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum MenuItem {
+    /// A clickable entry; choosing it runs the tool with this id as `{option}`.
+    Option {
+        id: String,
+        title: String,
+        disabled: bool,
+    },
+    /// A non-clickable status or note line. May span several lines.
+    Text {
+        text: String,
+        tone: Option<String>,
+    },
+    Header {
+        text: String,
+    },
+    Separator,
+}
+
+#[derive(Debug, Serialize)]
+struct MenuResponse {
+    items: Vec<MenuItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMenuItem {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    id: Option<String>,
+    title: Option<String>,
+    text: Option<String>,
+    tone: Option<String>,
+    disabled: Option<bool>,
+}
+
+fn parse_menu_items(stdout: &str) -> Result<Vec<MenuItem>, String> {
+    let raw: Vec<RawMenuItem> = serde_json::from_str(stdout)
+        .map_err(|e| format!("menu output is not a JSON array of items: {e}"))?;
+    if raw.len() > MAX_MENU_ITEMS {
+        return Err(format!("menu has more than {MAX_MENU_ITEMS} items"));
+    }
+    raw.into_iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let at = |msg: &str| format!("menu item {}: {msg}", i + 1);
+            match item.kind.as_deref().unwrap_or("option") {
+                "option" => {
+                    let id = item.id.filter(|id| valid_dynamic_option_id(id));
+                    match (id, item.title) {
+                        (Some(id), Some(title)) => Ok(MenuItem::Option {
+                            id,
+                            title,
+                            disabled: item.disabled.unwrap_or(false),
+                        }),
+                        _ => Err(at("an option needs a valid `id` and a `title`")),
+                    }
+                }
+                "text" => {
+                    let text = item.text.ok_or_else(|| at("text needs `text`"))?;
+                    if let Some(tone) = &item.tone
+                        && !["ok", "warn", "error", "info"].contains(&tone.as_str())
+                    {
+                        return Err(at("tone must be ok, warn, error or info"));
+                    }
+                    Ok(MenuItem::Text {
+                        text,
+                        tone: item.tone,
+                    })
+                }
+                "header" => Ok(MenuItem::Header {
+                    text: item.text.ok_or_else(|| at("header needs `text`"))?,
+                }),
+                "separator" => Ok(MenuItem::Separator),
+                other => Err(at(&format!("unknown type `{other}`"))),
+            }
+        })
+        .collect()
+}
+
+/// Runs the command and returns its stdout. The process is killed if it does
+/// not finish within `timeout`.
+async fn run_for_stdout(
+    invocation: Invocation,
+    base_dir: &Path,
+    envs: Vec<(&'static str, String)>,
+    timeout: Duration,
+) -> Result<String, ApiError> {
+    let child = tokio::process::Command::new(&invocation.program)
+        .args(&invocation.args)
+        .envs(envs)
+        .current_dir(base_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "failed to start {}: {e}",
+                invocation.program.to_string_lossy()
+            ))
+        })?;
+
+    let output = tokio::time::timeout(timeout, child.wait_with_output())
+        .await
+        .map_err(|_| ApiError::BadRequest(format!("menu script timed out after {timeout:?}")))?
+        .map_err(|e| ApiError::BadRequest(format!("menu script failed: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ApiError::BadRequest(format!(
+            "menu script exited with {}: {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        )));
+    }
+    if output.stdout.len() > MAX_MENU_OUTPUT_BYTES {
+        return Err(ApiError::BadRequest("menu output is too large".to_string()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+async fn tool_menu(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MenuRequest>,
+) -> Result<ResponseJson<ApiResponse<MenuResponse>>, ApiError> {
+    let loaded = load_tools(&config_paths());
+    let tool = find_tool(&loaded, &request.tool_id)?;
+    let target = match request.target {
+        RunTarget::Click => &tool.config.click,
+        RunTarget::Ticket => &tool.config.ticket,
+    };
+    let command = target
+        .options_command
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("tool has no options_command".to_string()))?;
+
+    let subs =
+        build_substitutions(&deployment.db().pool, request.target, request.issue_id, "").await?;
+    let invocation = build_invocation(command, &tool.base_dir, &subs)
+        .ok_or_else(|| ApiError::BadRequest("options_command is empty".to_string()))?;
+    let envs = tool_envs(&tool.config.id, request.target, &subs);
+    let timeout = Duration::from_secs(
+        target
+            .options_timeout_secs
+            .unwrap_or(DEFAULT_MENU_TIMEOUT_SECS)
+            .min(MAX_MENU_TIMEOUT_SECS),
+    );
+
+    let stdout = run_for_stdout(invocation, &tool.base_dir, envs, timeout).await?;
+    let items = parse_menu_items(&stdout).map_err(ApiError::BadRequest)?;
+    Ok(ResponseJson(ApiResponse::success(MenuResponse { items })))
 }
 
 #[cfg(test)]
@@ -566,5 +782,93 @@ mod tests {
         .unwrap();
         assert_eq!(response.status, "running");
         assert_eq!(response.exit_code, None);
+    }
+
+    #[test]
+    fn parses_typed_menu_items_with_option_as_default_type() {
+        let items = parse_menu_items(
+            r#"[
+              {"type":"header","text":"Daemon"},
+              {"type":"text","text":"running\n3 projects","tone":"ok"},
+              {"type":"separator"},
+              {"id":"stop","title":"Stop"},
+              {"type":"option","id":"start","title":"Start","disabled":true}
+            ]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            items,
+            vec![
+                MenuItem::Header {
+                    text: "Daemon".into()
+                },
+                MenuItem::Text {
+                    text: "running\n3 projects".into(),
+                    tone: Some("ok".into())
+                },
+                MenuItem::Separator,
+                MenuItem::Option {
+                    id: "stop".into(),
+                    title: "Stop".into(),
+                    disabled: false
+                },
+                MenuItem::Option {
+                    id: "start".into(),
+                    title: "Start".into(),
+                    disabled: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_menu_items() {
+        for bad in [
+            "not json",
+            r#"{"id":"a","title":"A"}"#,
+            r#"[{"title":"no id"}]"#,
+            r#"[{"id":"","title":"empty id"}]"#,
+            r#"[{"type":"text"}]"#,
+            r#"[{"type":"text","text":"x","tone":"purple"}]"#,
+            r#"[{"type":"mystery"}]"#,
+        ] {
+            assert!(parse_menu_items(bad).is_err(), "{bad}");
+        }
+        assert_eq!(parse_menu_items("[]").unwrap(), vec![]);
+    }
+
+    #[tokio::test]
+    async fn run_for_stdout_returns_stdout_and_reports_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let inv = |script: &str| Invocation {
+            program: OsString::from("/bin/sh"),
+            args: vec!["-c".into(), script.into()],
+        };
+        let ok = run_for_stdout(inv("echo '[]'"), dir.path(), vec![], Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert_eq!(ok.trim(), "[]");
+
+        let failed = run_for_stdout(
+            inv("echo boom >&2; exit 4"),
+            dir.path(),
+            vec![],
+            Duration::from_secs(5),
+        )
+        .await;
+        let message = format!("{:?}", failed.unwrap_err());
+        assert!(
+            message.contains("exited with 4") && message.contains("boom"),
+            "{message}"
+        );
+
+        let slow = run_for_stdout(
+            inv("sleep 5"),
+            dir.path(),
+            vec![],
+            Duration::from_millis(100),
+        )
+        .await;
+        assert!(format!("{:?}", slow.unwrap_err()).contains("timed out"));
     }
 }

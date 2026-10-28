@@ -7,6 +7,7 @@ import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { ToastHost } from '@/shared/components/ToastHost';
 import { ToolTicketDrop } from '@/features/tools/ToolTicketDrop';
 import { renderToolIcon } from '@/features/tools/toolIcons';
+import { ToolMenu } from '@/features/tools/ToolMenu';
 import { useTools } from '@/features/tools/useTools';
 import { useToolRunStore } from '@/shared/stores/useToolRunStore';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
@@ -60,11 +61,20 @@ export function SharedAppLayout() {
         title: tool.title,
         color: tool.color,
         icon: renderToolIcon(tool.icon),
-        clickOptions: tool.click.options,
-        canDropOnTicket: tool.ticket.options.length > 0,
+        hasMenu: tool.click.options.length > 0 || tool.click.dynamic,
+        canDropOnTicket: tool.ticket.options.length > 0 || tool.ticket.dynamic,
         isRunning: (runningTools[tool.id] ?? 0) > 0,
       })),
     [tools, runningTools]
+  );
+  const renderToolMenu = useCallback(
+    (appBarTool: { id: string }, close: () => void) => {
+      const tool = tools.find((t) => t.id === appBarTool.id);
+      return tool ? (
+        <ToolMenu tool={tool} target="click" onDone={close} />
+      ) : null;
+    },
+    [tools]
   );
   const handleToolRun = useCallback(
     (toolId: string, optionId?: string) => {
@@ -326,6 +336,7 @@ export function SharedAppLayout() {
               onCreateProject={handleCreateProject}
               tools={appBarTools}
               onToolRun={handleToolRun}
+              renderToolMenu={renderToolMenu}
               onWorkspacesClick={handleWorkspacesClick}
               onHostClick={handleHostClick}
               onProjectClick={handleProjectClick}

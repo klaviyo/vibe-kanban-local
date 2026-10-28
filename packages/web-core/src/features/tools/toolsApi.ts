@@ -7,6 +7,22 @@ export interface ToolOption {
 
 export interface ToolTarget {
   options: ToolOption[];
+  /** The menu is produced by a script each time it opens. */
+  dynamic: boolean;
+}
+
+export type MenuTone = 'ok' | 'warn' | 'error' | 'info';
+
+export type MenuItem =
+  | { type: 'option'; id: string; title: string; disabled: boolean }
+  | { type: 'text'; text: string; tone: MenuTone | null }
+  | { type: 'header'; text: string }
+  | { type: 'separator' };
+
+export interface MenuRequest {
+  tool_id: string;
+  target: 'click' | 'ticket';
+  issue_id?: string;
 }
 
 export interface Tool {
@@ -48,6 +64,16 @@ async function unwrap<T>(response: Response): Promise<T> {
 export const toolsApi = {
   list: async (): Promise<ToolsResponse> =>
     unwrap<ToolsResponse>(await makeLocalApiRequest('/api/tools')),
+  menu: async (request: MenuRequest): Promise<MenuItem[]> =>
+    (
+      await unwrap<{ items: MenuItem[] }>(
+        await makeLocalApiRequest('/api/tools/menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        })
+      )
+    ).items,
   run: async (request: RunToolRequest): Promise<RunToolResult> =>
     unwrap<RunToolResult>(
       await makeLocalApiRequest('/api/tools/run', {
