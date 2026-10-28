@@ -85,7 +85,6 @@ export interface WorkspacesSidebarProps {
     name: string;
     status: AppBarHostStatus;
   } | null;
-  onOpenRemoteHostSettings?: () => void;
 }
 
 export interface WorkspacesSidebarReopenTagProps {
@@ -189,7 +188,6 @@ export function WorkspacesSidebar({
   onOpenWorkspaceActions,
   persistKeys = DEFAULT_PERSIST_KEYS,
   activeRemoteHost = null,
-  onOpenRemoteHostSettings,
 }: WorkspacesSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -293,17 +291,6 @@ export function WorkspacesSidebar({
                   )}
                   aria-hidden="true"
                 />
-                {onOpenRemoteHostSettings && (
-                  <button
-                    type="button"
-                    onClick={onOpenRemoteHostSettings}
-                    className="text-xs text-brand hover:underline"
-                  >
-                    {t('common:workspaces.remoteHostManage', {
-                      defaultValue: 'Manage',
-                    })}
-                  </button>
-                )}
               </div>
             </div>
           </div>

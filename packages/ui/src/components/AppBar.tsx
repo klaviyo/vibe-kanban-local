@@ -8,7 +8,6 @@ import type { ReactNode } from 'react';
 import {
   LayoutIcon,
   DownloadSimpleIcon,
-  LinkIcon,
   PlusIcon,
   KanbanIcon,
   SpinnerIcon,
@@ -38,7 +37,6 @@ function getProjectInitials(name: string): string {
 interface AppBarProps {
   projects: AppBarProject[];
   hosts?: AppBarHost[];
-  onPairHostClick?: () => void;
   activeHostId?: string | null;
   onCreateProject: () => void;
   onExportClick?: () => void;
@@ -186,7 +184,6 @@ function getHostButtonClassName({
 export function AppBar({
   projects,
   hosts = [],
-  onPairHostClick,
   activeHostId = null,
   onCreateProject,
   onExportClick,
@@ -230,7 +227,7 @@ export function AppBar({
     });
   }
 
-  if (hosts.length > 0 || onPairHostClick) {
+  if (hosts.length > 0) {
     sections.push({
       key: 'remote',
       label: 'Remote',
@@ -248,19 +245,6 @@ export function AppBar({
             onHostClick?.(host.id, host.status);
           },
         })),
-        ...(onPairHostClick
-          ? [
-              {
-                key: 'pair-remote-device',
-                kind: 'icon-button' as const,
-                label: 'Pair a remote device',
-                icon: LinkIcon,
-                onClick: onPairHostClick,
-                className:
-                  'bg-primary text-muted hover:text-normal hover:bg-tertiary',
-              },
-            ]
-          : []),
       ],
     });
   }

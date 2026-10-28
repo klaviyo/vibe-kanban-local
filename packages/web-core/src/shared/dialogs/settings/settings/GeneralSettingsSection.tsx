@@ -203,14 +203,6 @@ export function GeneralSettingsSection() {
     setDirty(false);
   };
 
-  const resetOnboarding = async () => {
-    if (!config) return;
-    updateAndSaveConfig({
-      onboarding_acknowledged: false,
-      remote_onboarding_acknowledged: false,
-    });
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8 gap-2">
@@ -798,28 +790,6 @@ export function GeneralSettingsSection() {
         description={t('settings.general.taskTemplates.description')}
       >
         <TagManager />
-      </SettingsCard>
-
-      {/* Safety */}
-      <SettingsCard
-        title={t('settings.general.safety.title')}
-        description={t('settings.general.safety.description')}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-normal">
-              {t('settings.general.safety.onboarding.title')}
-            </p>
-            <p className="text-sm text-low">
-              {t('settings.general.safety.onboarding.description')}
-            </p>
-          </div>
-          <PrimaryButton
-            variant="tertiary"
-            value={t('settings.general.safety.onboarding.button')}
-            onClick={resetOnboarding}
-          />
-        </div>
       </SettingsCard>
 
       <SettingsSaveBar

@@ -1,5 +1,6 @@
 use api_types::{
-    MutationResponse, PullRequest as WirePullRequest, PullRequestIssue, PullRequestStatus,
+    DeleteResponse, MutationResponse, PullRequest as WirePullRequest, PullRequestIssue,
+    PullRequestStatus,
 };
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
@@ -59,6 +60,56 @@ impl PullRequestIssueRepository {
             },
             txid,
         })
+    }
+
+    /// Removes link rows matching `WHERE <clause>` and drops any
+    /// workspace-less `pull_requests` row left without links, so the PR
+    /// monitor stops polling PRs that only existed to back the link.
+    async fn delete_links(
+        pool: &SqlitePool,
+        clause: &str,
+        binds: &[String],
+    ) -> Result<DeleteResponse, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let select_sql = format!("SELECT pull_request_id FROM pull_request_issues WHERE {clause}");
+        let delete_sql = format!("DELETE FROM pull_request_issues WHERE {clause}");
+        let mut select = sqlx::query_scalar::<_, String>(&select_sql);
+        let mut delete = sqlx::query(&delete_sql);
+        for b in binds {
+            select = select.bind(b.clone());
+            delete = delete.bind(b.clone());
+        }
+        let pr_ids = select.fetch_all(&mut *tx).await?;
+        delete.execute(&mut *tx).await?;
+        for pr_id in pr_ids {
+            sqlx::query(
+                "DELETE FROM pull_requests WHERE id = $1 AND workspace_id IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM pull_request_issues WHERE pull_request_id = $1)",
+            )
+            .bind(pr_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let txid = mutation_log::next_txid(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(DeleteResponse { txid })
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<DeleteResponse, sqlx::Error> {
+        Self::delete_links(pool, "id = $1", &[id.to_string()]).await
+    }
+
+    pub async fn delete_by_issue_and_url(
+        pool: &SqlitePool,
+        issue_id: Uuid,
+        pr_url: &str,
+    ) -> Result<DeleteResponse, sqlx::Error> {
+        Self::delete_links(
+            pool,
+            "issue_id = $1 AND pull_request_id IN (SELECT id FROM pull_requests WHERE pr_url = $2)",
+            &[issue_id.to_string(), pr_url.to_string()],
+        )
+        .await
     }
 
     /// Returns every PR linked to the given issue, in wire shape. The

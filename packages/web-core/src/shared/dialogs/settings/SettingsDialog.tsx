@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CaretLeftIcon, PlusIcon, XIcon } from '@phosphor-icons/react';
+import { CaretLeftIcon, XIcon } from '@phosphor-icons/react';
 import { create, useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/shared/lib/modals';
 
 import { cn } from '@/shared/lib/utils';
 import { SettingsSection } from './settings/SettingsSection';
-import { SettingsSelect } from './settings/SettingsComponents';
 import type {
   SettingsSectionType,
   SettingsSectionInitialState,
@@ -47,34 +46,14 @@ function SettingsDialogNavigation({
   onSectionSelect: (sectionId: SettingsSectionType) => void;
 }) {
   const { t } = useTranslation('settings');
-  const {
-    availableHosts,
-    hostsResolved,
-    selectedHost,
-    selectedHostId,
-    setSelectedHostId,
-  } = useSettingsHost();
+  const { hostsResolved, selectedHost } = useSettingsHost();
   const hostSections = SETTINGS_SECTION_DEFINITIONS.filter(
     (section) => section.group === 'host'
   );
   const universalSections = SETTINGS_SECTION_DEFINITIONS.filter(
     (section) => section.group === 'universal'
   );
-  const hostOptions = availableHosts.map((host) => ({
-    value: host.id,
-    label: host.status != null ? `${host.label} (${host.status})` : host.label,
-  }));
   const hostSettingsDisabled = !hostsResolved || !selectedHost;
-  const hostHint = !hostsResolved
-    ? t('settings.general.loading')
-    : availableHosts.length === 0
-      ? t('settings.hostPicker.pairMachineHint')
-      : t('settings.hostPicker.selectMachineHint');
-
-  const handlePairOtherMachines = () => {
-    onSectionSelect('relay');
-  };
-
   const renderSectionButton = (sectionId: SettingsSectionType) => {
     const section = SETTINGS_SECTION_DEFINITIONS.find(
       (item) => item.id === sectionId
@@ -115,24 +94,6 @@ function SettingsDialogNavigation({
           <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-low">
             {t('settings.layout.nav.machineSettings')}
           </div>
-        </div>
-        <div className="px-2">
-          <SettingsSelect
-            value={selectedHostId ?? undefined}
-            options={hostOptions}
-            actions={[
-              {
-                label: t('settings.layout.nav.pairOtherMachines'),
-                icon: PlusIcon,
-                onClick: handlePairOtherMachines,
-              },
-            ]}
-            onChange={setSelectedHostId}
-            placeholder={t('settings.layout.nav.selectHost')}
-          />
-          {hostSettingsDisabled && (
-            <p className="mt-2 px-1 text-xs text-low">{hostHint}</p>
-          )}
         </div>
         <div className="flex flex-col gap-1">
           {hostSections.map((section) => renderSectionButton(section.id))}

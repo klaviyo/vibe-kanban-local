@@ -1,12 +1,12 @@
 use api_types::{
-    CreatePullRequestIssueRequest, ListPullRequestIssuesResponse, ListPullRequestsResponse,
-    MutationResponse, PullRequestIssue, PullRequestStatus,
+    CreatePullRequestIssueRequest, DeleteResponse, ListPullRequestIssuesResponse,
+    ListPullRequestsResponse, MutationResponse, PullRequestIssue, PullRequestStatus,
 };
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     response::Json as ResponseJson,
-    routing::get,
+    routing::{delete, get},
 };
 use db::models::{
     merge::MergeStatus, pull_request::PullRequest, pull_request_issue::PullRequestIssueRepository,
@@ -47,7 +47,13 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/pull-requests", get(list_pull_requests))
         .route(
             "/pull-request-issues",
-            get(list_pull_request_issues).post(create_pull_request_issue),
+            get(list_pull_request_issues)
+                .post(create_pull_request_issue)
+                .delete(delete_pull_request_issue_by_url),
+        )
+        .route(
+            "/pull-request-issues/{id}",
+            delete(delete_pull_request_issue),
         )
 }
 
@@ -142,6 +148,32 @@ async fn create_pull_request_issue(
 
     let id = request.id.unwrap_or_else(Uuid::new_v4);
     let response = PullRequestIssueRepository::link(pool, id, &pr.id, request.issue_id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+async fn delete_pull_request_issue(
+    State(deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let response = PullRequestIssueRepository::delete(pool, id).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+#[derive(Debug, Deserialize)]
+struct DeletePullRequestIssueByUrlQuery {
+    issue_id: Uuid,
+    pr_url: String,
+}
+
+async fn delete_pull_request_issue_by_url(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<DeletePullRequestIssueByUrlQuery>,
+) -> Result<ResponseJson<ApiResponse<DeleteResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let response =
+        PullRequestIssueRepository::delete_by_issue_and_url(pool, query.issue_id, &query.pr_url)
+            .await?;
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 

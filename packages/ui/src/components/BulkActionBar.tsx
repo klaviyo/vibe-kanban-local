@@ -5,6 +5,7 @@ import {
   ArrowsLeftRightIcon,
   ArrowFatLineUpIcon,
   UsersIcon,
+  TagIcon,
   TrashIcon,
   XIcon,
 } from '@phosphor-icons/react';
@@ -49,6 +50,7 @@ export interface BulkActionBarProps {
   onChangeStatus: () => void;
   onChangePriority: () => void;
   onChangeAssignees: () => void;
+  onChangeTags: () => void;
   onDelete: () => void;
   onClearSelection: () => void;
 }
@@ -58,6 +60,7 @@ export function BulkActionBar({
   onChangeStatus,
   onChangePriority,
   onChangeAssignees,
+  onChangeTags,
   onDelete,
   onClearSelection,
 }: BulkActionBarProps) {
@@ -89,6 +92,11 @@ export function BulkActionBar({
           icon={UsersIcon}
           label={t('kanban.bulkChangeAssignees', { defaultValue: 'Assignee' })}
           onClick={onChangeAssignees}
+        />
+        <BulkActionButton
+          icon={TagIcon}
+          label={t('kanban.bulkChangeTags', { defaultValue: 'Tags' })}
+          onClick={onChangeTags}
         />
 
         <div className="h-4 w-px bg-border" />

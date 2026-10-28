@@ -35,7 +35,6 @@ import {
   type CreateRemoteProjectResult,
 } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CommandBarDialog } from '@/shared/dialogs/command-bar/CommandBarDialog';
 import { useCommandBarShortcut } from '@/shared/hooks/useCommandBarShortcut';
 import { useWorkspaceSidebarPreviewController } from '@/shared/hooks/useWorkspaceSidebarPreviewController';
@@ -266,13 +265,6 @@ export function SharedAppLayout() {
     }
   }, []);
 
-  const openRelaySettings = useCallback((hostId?: string) => {
-    void SettingsDialog.show({
-      initialSection: 'relay',
-      ...(hostId ? { initialState: { hostId } } : {}),
-    });
-  }, []);
-
   const handleHostClick = useCallback(
     (hostId: string, status: AppBarHostStatus) => {
       if (status === 'offline') {
@@ -286,10 +278,6 @@ export function SharedAppLayout() {
     },
     [navigate]
   );
-
-  const handlePairHostClick = useCallback(() => {
-    openRelaySettings();
-  }, [openRelaySettings]);
 
   return (
     <SyncErrorProvider>
@@ -333,7 +321,6 @@ export function SharedAppLayout() {
               onExportClick={handleExportClick}
               onWorkspacesClick={handleWorkspacesClick}
               onHostClick={handleHostClick}
-              onPairHostClick={handlePairHostClick}
               onProjectClick={handleProjectClick}
               onProjectsDragEnd={handleProjectsDragEnd}
               isSavingProjectOrder={isSavingProjectOrder}

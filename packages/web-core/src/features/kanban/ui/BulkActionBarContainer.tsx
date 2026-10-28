@@ -34,6 +34,13 @@ export function BulkActionBarContainer({
     await openAssigneeSelection(projectId, issueIds);
   }, [projectId, issueIds, openAssigneeSelection]);
 
+  const handleChangeTags = useCallback(async () => {
+    const { TagSelectionDialog } = await import(
+      '@/shared/dialogs/kanban/TagSelectionDialog'
+    );
+    await TagSelectionDialog.show({ projectId, issueIds });
+  }, [projectId, issueIds]);
+
   const handleDelete = useCallback(async () => {
     await executeAction(Actions.DeleteIssue, undefined, projectId, issueIds);
     clearSelection();
@@ -45,6 +52,7 @@ export function BulkActionBarContainer({
       onChangeStatus={handleChangeStatus}
       onChangePriority={handleChangePriority}
       onChangeAssignees={handleChangeAssignees}
+      onChangeTags={handleChangeTags}
       onDelete={handleDelete}
       onClearSelection={clearSelection}
     />
