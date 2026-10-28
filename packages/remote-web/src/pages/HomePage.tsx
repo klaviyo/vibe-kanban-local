@@ -56,11 +56,8 @@ export default function HomePage() {
     [hosts],
   );
 
-  const openRelaySettings = useCallback((hostId?: string) => {
-    void SettingsDialog.show({
-      initialSection: "relay",
-      ...(hostId ? { initialState: { hostId } } : {}),
-    });
+  const openRelaySettings = useCallback((_hostId?: string) => {
+    void SettingsDialog.show({});
   }, []);
 
   useEffect(() => {

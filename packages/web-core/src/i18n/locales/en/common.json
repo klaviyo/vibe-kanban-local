@@ -362,7 +362,6 @@
   "kanban": {
     "noVisibleStatuses": "All statuses are hidden. Use display settings or switch to another tab to view issues.",
     "noProjectFound": "No project found",
-    "unassigned": "Unassigned",
     "noTagsAvailable": "No tags available",
     "createNewIssue": "Create new issue",
     "searchTags": "Search tags...",
@@ -415,8 +414,6 @@
       "description": "Please sign in to view this project.",
       "action": "Sign in"
     },
-    "team": "Team",
-    "personal": "Personal",
     "searchPlaceholder": "Search issues...",
     "filters": "Filters",
     "clearFilters": "Clear filters",
@@ -445,12 +442,9 @@
     },
     "sortAscending": "Ascending",
     "sortDescending": "Descending",
-    "assignee": "Assignee",
-    "self": "Me",
     "priority": "Priority",
     "subIssuesFilterLabel": "Sub-issues",
     "workspacesFilterLabel": "Workspaces",
-    "selectAssignees": "Select assignees...",
     "selectTags": "Select tags...",
     "relationships": "Relationships",
     "noRelationships": "No relationships",
@@ -482,7 +476,7 @@
       },
       "issues": {
         "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, tags, relationships, comments, sub-issues and more."
       },
       "workspaces": {
         "title": "Workspaces",

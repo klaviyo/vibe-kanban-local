@@ -42,9 +42,6 @@ import { ErrorAlert } from './ErrorAlert';
 export type IssuePanelMode = 'create' | 'edit';
 type IssuePriority = IssuePropertyRowProps['priority'];
 type IssueStatus = IssuePropertyRowProps['statuses'][number];
-type IssueAssignee = NonNullable<
-  IssuePropertyRowProps['assigneeUsers']
->[number];
 type IssueCreator = Exclude<IssuePropertyRowProps['creatorUser'], undefined>;
 export interface KanbanIssueTag extends IssueTagBase {
   project_id: string;
@@ -93,9 +90,6 @@ export interface KanbanIssuePanelProps {
   // Options for dropdowns
   statuses: IssueStatus[];
   tags: KanbanIssueTag[];
-
-  // Resolved assignee profiles for avatar display
-  assigneeUsers?: IssueAssignee[];
 
   // Edit mode data
   issueId?: string | null;
@@ -166,7 +160,6 @@ export function KanbanIssuePanel({
   onFormChange,
   statuses,
   tags,
-  assigneeUsers,
   issueId,
   creatorUser,
   parentIssue,
@@ -307,8 +300,6 @@ export function KanbanIssuePanel({
           <IssuePropertyRow
             statusId={formData.statusId}
             priority={formData.priority}
-            assigneeIds={formData.assigneeIds}
-            assigneeUsers={assigneeUsers}
             statuses={statuses}
             creatorUser={showCreator ? creatorUser : undefined}
             parentIssue={parentIssue}
@@ -316,9 +307,6 @@ export function KanbanIssuePanel({
             onRemoveParentIssue={onRemoveParentIssue}
             onStatusClick={() => onFormChange('statusId', formData.statusId)}
             onPriorityClick={() => onFormChange('priority', formData.priority)}
-            onAssigneeClick={() =>
-              onFormChange('assigneeIds', formData.assigneeIds)
-            }
             disabled={isSubmitting}
           />
         </div>

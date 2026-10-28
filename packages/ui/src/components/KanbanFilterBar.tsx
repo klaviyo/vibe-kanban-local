@@ -11,7 +11,6 @@ import { cn } from '../lib/cn';
 import type { PriorityLevel } from './PriorityIcon';
 import { InputField } from './InputField';
 import { PrimaryButton } from './PrimaryButton';
-import { ButtonGroup, ButtonGroupItem } from './IconButtonGroup';
 
 export interface KanbanFilterTag {
   id: string;
@@ -19,49 +18,26 @@ export interface KanbanFilterTag {
   color: string;
 }
 
-export interface KanbanFilterUser {
-  user_id: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  username?: string | null;
-  avatar_url?: string | null;
-}
-
 export interface KanbanFilterState<TSortField extends string = string> {
   searchQuery: string;
   priorities: PriorityLevel[];
-  assigneeIds: string[];
   tagIds: string[];
   sortField: TSortField;
   sortDirection: 'asc' | 'desc';
 }
 
-export interface KanbanProjectViewIds {
-  TEAM: string;
-  PERSONAL: string;
-}
-
-const DEFAULT_KANBAN_PROJECT_VIEW_IDS: KanbanProjectViewIds = {
-  TEAM: 'team',
-  PERSONAL: 'personal',
-};
-
 export interface RenderKanbanFiltersDialogProps<
   TTag extends KanbanFilterTag = KanbanFilterTag,
-  TUser extends KanbanFilterUser = KanbanFilterUser,
   TSortField extends string = string,
 > {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tags: TTag[];
-  users: TUser[];
   projectId: string;
-  currentUserId: string | null;
   filters: KanbanFilterState<TSortField>;
   showSubIssues: boolean;
   showWorkspaces: boolean;
   onPrioritiesChange: (priorities: PriorityLevel[]) => void;
-  onAssigneesChange: (assigneeIds: string[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
   onShowSubIssuesChange: (show: boolean) => void;
@@ -72,25 +48,18 @@ export interface RenderKanbanFiltersDialogProps<
 
 interface KanbanFilterBarProps<
   TTag extends KanbanFilterTag = KanbanFilterTag,
-  TUser extends KanbanFilterUser = KanbanFilterUser,
   TSortField extends string = string,
 > {
   isFiltersDialogOpen: boolean;
   onFiltersDialogOpenChange: (open: boolean) => void;
   tags: TTag[];
-  users: TUser[];
-  activeViewId: string;
-  onViewChange: (viewId: string) => void;
-  viewIds?: KanbanProjectViewIds;
   projectId: string;
-  currentUserId: string | null;
   filters: KanbanFilterState<TSortField>;
   showSubIssues: boolean;
   showWorkspaces: boolean;
   hasActiveFilters: boolean;
   onSearchQueryChange: (searchQuery: string) => void;
   onPrioritiesChange: (priorities: PriorityLevel[]) => void;
-  onAssigneesChange: (assigneeIds: string[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
   onShowSubIssuesChange: (show: boolean) => void;
@@ -102,31 +71,24 @@ interface KanbanFilterBarProps<
   shouldAnimateCreateButton: boolean;
   isMobile?: boolean;
   renderFiltersDialog?: (
-    props: RenderKanbanFiltersDialogProps<TTag, TUser, TSortField>
+    props: RenderKanbanFiltersDialogProps<TTag, TSortField>
   ) => ReactNode;
 }
 
 export function KanbanFilterBar<
   TTag extends KanbanFilterTag = KanbanFilterTag,
-  TUser extends KanbanFilterUser = KanbanFilterUser,
   TSortField extends string = string,
 >({
   isFiltersDialogOpen,
   onFiltersDialogOpenChange,
   tags,
-  users,
-  activeViewId,
-  onViewChange,
-  viewIds = DEFAULT_KANBAN_PROJECT_VIEW_IDS,
   projectId,
-  currentUserId,
   filters,
   showSubIssues,
   showWorkspaces,
   hasActiveFilters,
   onSearchQueryChange,
   onPrioritiesChange,
-  onAssigneesChange,
   onTagsChange,
   onSortChange,
   onShowSubIssuesChange,
@@ -138,7 +100,7 @@ export function KanbanFilterBar<
   shouldAnimateCreateButton,
   isMobile,
   renderFiltersDialog,
-}: KanbanFilterBarProps<TTag, TUser, TSortField>) {
+}: KanbanFilterBarProps<TTag, TSortField>) {
   const { t } = useTranslation('common');
   const [mobileSearchExpanded, setMobileSearchExpanded] = useState(false);
 
@@ -176,21 +138,6 @@ export function KanbanFilterBar<
             isMobile ? 'gap-half' : 'gap-base'
           )}
         >
-          <ButtonGroup className="flex-wrap">
-            <ButtonGroupItem
-              active={activeViewId === viewIds.TEAM}
-              onClick={() => onViewChange(viewIds.TEAM)}
-            >
-              {t('kanban.team', 'Team')}
-            </ButtonGroupItem>
-            <ButtonGroupItem
-              active={activeViewId === viewIds.PERSONAL}
-              onClick={() => onViewChange(viewIds.PERSONAL)}
-            >
-              {t('kanban.personal', 'Personal')}
-            </ButtonGroupItem>
-          </ButtonGroup>
-
           {isMobile ? (
             <button
               type="button"
@@ -271,14 +218,11 @@ export function KanbanFilterBar<
         open: isFiltersDialogOpen,
         onOpenChange: onFiltersDialogOpenChange,
         projectId,
-        currentUserId,
         tags,
-        users,
         filters,
         showSubIssues,
         showWorkspaces,
         onPrioritiesChange,
-        onAssigneesChange,
         onTagsChange,
         onSortChange,
         onShowSubIssuesChange,

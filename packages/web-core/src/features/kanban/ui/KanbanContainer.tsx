@@ -19,8 +19,6 @@ import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRoute
 import {
   useUiPreferencesStore,
   resolveKanbanProjectState,
-  KANBAN_ASSIGNEE_FILTER_VALUES,
-  KANBAN_PROJECT_VIEW_IDS,
   type KanbanFilterState,
   type KanbanSortField,
 } from '@/shared/stores/useUiPreferencesStore';
@@ -41,7 +39,6 @@ import {
   type ProjectIssueCreateOptions,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
-import type { OrganizationMemberWithProfile } from 'shared/types';
 import {
   KanbanProvider,
   KanbanBoard,
@@ -122,10 +119,6 @@ const areKanbanFiltersEqual = (
     return false;
   }
 
-  if (!areStringSetsEqual(left.assigneeIds, right.assigneeIds)) {
-    return false;
-  }
-
   if (!areStringSetsEqual(left.tagIds, right.tagIds)) {
     return false;
   }
@@ -161,7 +154,6 @@ export function KanbanContainer() {
     issues,
     statuses,
     tags,
-    issueAssignees,
     issueTags,
     issueRelationships,
     getTagObjectsForIssue,
@@ -223,12 +215,8 @@ export function KanbanContainer() {
   );
 
   // Get setter and executor from ActionsContext
-  const {
-    setDefaultCreateStatusId,
-    executeAction,
-    openPrioritySelection,
-    openAssigneeSelection,
-  } = useActions();
+  const { setDefaultCreateStatusId, executeAction, openPrioritySelection } =
+    useActions();
   const openProjectsGuide = useCallback(() => {
     executeAction(Actions.ProjectsGuide);
   }, [executeAction]);
@@ -238,9 +226,6 @@ export function KanbanContainer() {
   );
   const projectViewPreferencesById = useUiPreferencesStore(
     (s) => s.kanbanProjectViewPreferences[projectId]
-  );
-  const setKanbanProjectView = useUiPreferencesStore(
-    (s) => s.setKanbanProjectView
   );
   const setKanbanProjectViewFilters = useUiPreferencesStore(
     (s) => s.setKanbanProjectViewFilters
@@ -314,7 +299,6 @@ export function KanbanContainer() {
 
   const { filteredIssues } = useKanbanFilters({
     issues,
-    issueAssignees,
     issueTags,
     issueRelationships,
     issuesById,
@@ -322,7 +306,6 @@ export function KanbanContainer() {
     filters: kanbanFilters,
     showSubIssues,
     hideBlocked,
-    currentUserId: userId,
   });
 
   const setKanbanSearchQuery = useCallback(
@@ -340,16 +323,6 @@ export function KanbanContainer() {
       setKanbanProjectViewFilters(projectId, activeViewId, {
         ...kanbanFilters,
         priorities,
-      });
-    },
-    [activeViewId, kanbanFilters, projectId, setKanbanProjectViewFilters]
-  );
-
-  const setKanbanAssignees = useCallback(
-    (assigneeIds: string[]) => {
-      setKanbanProjectViewFilters(projectId, activeViewId, {
-        ...kanbanFilters,
-        assigneeIds,
       });
     },
     [activeViewId, kanbanFilters, projectId, setKanbanProjectViewFilters]
@@ -401,12 +374,6 @@ export function KanbanContainer() {
     clearKanbanProjectViewPreferences(projectId, activeViewId);
   }, [activeViewId, clearKanbanProjectViewPreferences, projectId]);
 
-  const handleKanbanProjectViewChange = useCallback(
-    (viewId: string) => {
-      setKanbanProjectView(projectId, viewId);
-    },
-    [projectId, setKanbanProjectView]
-  );
   const kanbanViewMode = useUiPreferencesStore((s) => s.kanbanViewMode);
   const listViewStatusFilter = useUiPreferencesStore(
     (s) => s.listViewStatusFilter
@@ -514,27 +481,6 @@ export function KanbanContainer() {
     setDefaultCreateStatusId(defaultCreateStatusId);
   }, [defaultCreateStatusId, setDefaultCreateStatusId]);
 
-  const createAssigneeIds = useMemo(() => {
-    const assigneeIds = new Set<string>();
-
-    for (const assigneeId of kanbanFilters.assigneeIds) {
-      if (assigneeId === KANBAN_ASSIGNEE_FILTER_VALUES.UNASSIGNED) {
-        continue;
-      }
-
-      if (assigneeId === KANBAN_ASSIGNEE_FILTER_VALUES.SELF) {
-        if (userId) {
-          assigneeIds.add(userId);
-        }
-        continue;
-      }
-
-      assigneeIds.add(assigneeId);
-    }
-
-    return [...assigneeIds];
-  }, [kanbanFilters.assigneeIds, userId]);
-
   // Get statuses to display in list view (all or filtered to one)
   const listViewStatuses = useMemo(() => {
     if (listViewStatusFilter) {
@@ -605,26 +551,6 @@ export function KanbanContainer() {
     }
     return map;
   }, [issues]);
-
-  // Create a lookup map for issue assignees (issue_id -> OrganizationMemberWithProfile[])
-  const issueAssigneesMap = useMemo(() => {
-    const map: Record<string, OrganizationMemberWithProfile[]> = {};
-    for (const assignee of issueAssignees) {
-      const member = membersWithProfilesById.get(assignee.user_id);
-      if (member) {
-        if (!map[assignee.issue_id]) {
-          map[assignee.issue_id] = [];
-        }
-        map[assignee.issue_id].push(member);
-      }
-    }
-    return map;
-  }, [issueAssignees, membersWithProfilesById]);
-
-  const membersWithProfiles = useMemo(
-    () => [...membersWithProfilesById.values()],
-    [membersWithProfilesById]
-  );
 
   const localWorkspacesById = useMemo(() => {
     const map = new Map<string, (typeof activeWorkspaces)[number]>();
@@ -965,15 +891,9 @@ export function KanbanContainer() {
 
   const handleAddTask = useCallback(
     (statusId?: string) => {
-      const createPayload = {
-        statusId: statusId ?? defaultCreateStatusId,
-        ...(createAssigneeIds.length > 0
-          ? { assigneeIds: createAssigneeIds }
-          : {}),
-      };
-      startCreate(createPayload);
+      startCreate({ statusId: statusId ?? defaultCreateStatusId });
     },
-    [createAssigneeIds, defaultCreateStatusId, startCreate]
+    [defaultCreateStatusId, startCreate]
   );
 
   // Inline editing callbacks for kanban cards
@@ -984,14 +904,6 @@ export function KanbanContainer() {
       openPrioritySelection(projectId, ids);
     },
     [projectId, openPrioritySelection, selectedIssueIds, isMultiSelectActive]
-  );
-
-  const handleCardAssigneeClick = useCallback(
-    (issueId: string) => {
-      const ids = isMultiSelectActive ? [...selectedIssueIds] : [issueId];
-      openAssigneeSelection(projectId, ids);
-    },
-    [projectId, openAssigneeSelection, selectedIssueIds, isMultiSelectActive]
   );
 
   const handleCardMoreActionsClick = useCallback(
@@ -1100,19 +1012,13 @@ export function KanbanContainer() {
             isFiltersDialogOpen={isFiltersDialogOpen}
             onFiltersDialogOpenChange={setIsFiltersDialogOpen}
             tags={tags}
-            users={membersWithProfiles}
-            activeViewId={activeViewId}
-            onViewChange={handleKanbanProjectViewChange}
-            viewIds={KANBAN_PROJECT_VIEW_IDS}
             projectId={projectId}
-            currentUserId={userId}
             filters={kanbanFilters}
             showSubIssues={showSubIssues}
             showWorkspaces={showWorkspaces}
             hasActiveFilters={hasActiveFilters}
             onSearchQueryChange={setKanbanSearchQuery}
             onPrioritiesChange={setKanbanPriorities}
-            onAssigneesChange={setKanbanAssignees}
             onTagsChange={setKanbanTags}
             onSortChange={setKanbanSort}
             onShowSubIssuesChange={setShowSubIssues}
@@ -1200,7 +1106,6 @@ export function KanbanContainer() {
                               description={issue.description}
                               priority={issue.priority}
                               tags={getTagObjectsForIssue(issue.id)}
-                              assignees={issueAssigneesMap[issue.id] ?? []}
                               pullRequests={issueCardPullRequests}
                               linearUrl={linearUrlByIssueId.get(issue.id)}
                               relationships={resolveRelationshipsForIssue(
@@ -1213,10 +1118,6 @@ export function KanbanContainer() {
                               onPriorityClick={(e) => {
                                 e.stopPropagation();
                                 handleCardPriorityClick(issue.id);
-                              }}
-                              onAssigneeClick={(e) => {
-                                e.stopPropagation();
-                                handleCardAssigneeClick(issue.id);
                               }}
                               onMoreActionsClick={() =>
                                 handleCardMoreActionsClick(issue.id)
@@ -1287,7 +1188,6 @@ export function KanbanContainer() {
               statuses={listViewStatuses}
               items={items}
               issueMap={issueMap}
-              issueAssigneesMap={issueAssigneesMap}
               getTagObjectsForIssue={getTagObjectsForIssue}
               getResolvedRelationshipsForIssue={
                 getResolvedRelationshipsForIssue

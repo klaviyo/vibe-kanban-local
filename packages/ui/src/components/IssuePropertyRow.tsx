@@ -1,12 +1,11 @@
 import { cn } from '../lib/cn';
-import { PlusIcon, UsersIcon, XIcon } from '@phosphor-icons/react';
+import { PlusIcon, XIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { PrimaryButton } from './PrimaryButton';
 import { IconButton } from './IconButton';
 import { StatusDot } from './StatusDot';
 import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
 import { UserAvatar, type UserAvatarUser } from './UserAvatar';
-import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
 
 export interface IssuePropertyStatus {
   id: string;
@@ -24,8 +23,6 @@ const priorityLabels: Record<PriorityLevel, string> = {
 export interface IssuePropertyRowProps {
   statusId: string;
   priority: PriorityLevel | null;
-  assigneeIds: string[];
-  assigneeUsers?: KanbanAssigneeUser[];
   statuses: IssuePropertyStatus[];
   creatorUser?: UserAvatarUser | null;
   parentIssue?: { id: string; simpleId: string } | null;
@@ -33,7 +30,6 @@ export interface IssuePropertyRowProps {
   onRemoveParentIssue?: () => void;
   onStatusClick: () => void;
   onPriorityClick: () => void;
-  onAssigneeClick: () => void;
   onAddClick?: () => void;
   disabled?: boolean;
   className?: string;
@@ -42,7 +38,6 @@ export interface IssuePropertyRowProps {
 export function IssuePropertyRow({
   statusId,
   priority,
-  assigneeUsers,
   statuses,
   creatorUser,
   parentIssue,
@@ -50,7 +45,6 @@ export function IssuePropertyRow({
   onRemoveParentIssue,
   onStatusClick,
   onPriorityClick,
-  onAssigneeClick,
   onAddClick,
   disabled,
   className,
@@ -77,21 +71,6 @@ export function IssuePropertyRow({
       >
         <PriorityIcon priority={priority} />
         {priority ? priorityLabels[priority] : 'No priority'}
-      </PrimaryButton>
-
-      <PrimaryButton
-        variant="tertiary"
-        onClick={onAssigneeClick}
-        disabled={disabled}
-      >
-        {assigneeUsers && assigneeUsers.length > 0 ? (
-          <KanbanAssignee assignees={assigneeUsers} />
-        ) : (
-          <>
-            <UsersIcon className="size-icon-xs" weight="bold" />
-            {t('kanban.assignee', 'Assignee')}
-          </>
-        )}
       </PrimaryButton>
 
       {creatorUser &&

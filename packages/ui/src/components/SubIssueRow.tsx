@@ -11,7 +11,6 @@ import {
 import { cn } from '../lib/cn';
 import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
 import { StatusDot } from './StatusDot';
-import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
 import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
@@ -50,11 +49,9 @@ export interface SubIssueRowProps {
   title: string;
   priority: PriorityLevel | null;
   statusColor: string;
-  assignees: KanbanAssigneeUser[];
   createdAt: string;
   onClick?: () => void;
   onPriorityClick?: (e: React.MouseEvent) => void;
-  onAssigneeClick?: (e: React.MouseEvent) => void;
   onMarkIndependentClick?: (e: React.MouseEvent) => void;
   onDeleteClick?: (e: React.MouseEvent) => void;
   className?: string;
@@ -67,11 +64,9 @@ export function SubIssueRow({
   title,
   priority,
   statusColor,
-  assignees,
   createdAt,
   onClick,
   onPriorityClick,
-  onAssigneeClick,
   onMarkIndependentClick,
   onDeleteClick,
   className,
@@ -138,19 +133,8 @@ export function SubIssueRow({
             <span className="text-base text-high truncate">{title}</span>
           </div>
 
-          {/* Right side: Assignee, Age */}
+          {/* Right side: Age */}
           <div className="flex items-center gap-half shrink-0">
-            {onAssigneeClick ? (
-              <button
-                type="button"
-                onClick={onAssigneeClick}
-                className="cursor-pointer hover:bg-secondary rounded-sm transition-colors"
-              >
-                <KanbanAssignee assignees={assignees} />
-              </button>
-            ) : (
-              <KanbanAssignee assignees={assignees} />
-            )}
             <span className="text-sm text-low">
               {formatRelativeTime(createdAt)}
             </span>

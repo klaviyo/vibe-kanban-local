@@ -69,7 +69,6 @@ export type KanbanSortField =
 export type KanbanFilterState = {
   searchQuery: string;
   priorities: IssuePriority[];
-  assigneeIds: string[]; // 'unassigned' or '__self__' or user IDs
   tagIds: string[];
   sortField: KanbanSortField;
   sortDirection: 'asc' | 'desc';
@@ -78,28 +77,18 @@ export type KanbanFilterState = {
 export const DEFAULT_KANBAN_FILTER_STATE: KanbanFilterState = {
   searchQuery: '',
   priorities: [],
-  assigneeIds: [],
   tagIds: [],
   sortField: 'sort_order',
   sortDirection: 'asc',
 };
 
-export const KANBAN_ASSIGNEE_FILTER_VALUES = {
-  UNASSIGNED: 'unassigned',
-  SELF: '__self__',
-} as const;
-
 export const KANBAN_PROJECT_VIEW_IDS = {
   TEAM: 'team',
-  PERSONAL: 'personal',
 } as const;
 
 export const DEFAULT_KANBAN_PROJECT_VIEW_ID = KANBAN_PROJECT_VIEW_IDS.TEAM;
 export const DEFAULT_KANBAN_SHOW_WORKSPACES = true;
 export const DEFAULT_KANBAN_HIDE_BLOCKED = false;
-
-export const getDefaultShowSubIssuesForView = (viewId: string): boolean =>
-  viewId === KANBAN_PROJECT_VIEW_IDS.PERSONAL;
 
 export type KanbanProjectView = {
   id: string;
@@ -132,7 +121,6 @@ export type ResolvedKanbanProjectState = {
 const cloneKanbanFilters = (filters: KanbanFilterState): KanbanFilterState => ({
   searchQuery: filters.searchQuery,
   priorities: [...filters.priorities],
-  assigneeIds: [...filters.assigneeIds],
   tagIds: [...filters.tagIds],
   sortField: filters.sortField,
   sortDirection: filters.sortDirection,
@@ -141,49 +129,29 @@ const cloneKanbanFilters = (filters: KanbanFilterState): KanbanFilterState => ({
 const isKanbanProjectViewId = (
   viewId: string
 ): viewId is (typeof KANBAN_PROJECT_VIEW_IDS)[keyof typeof KANBAN_PROJECT_VIEW_IDS] =>
-  viewId === KANBAN_PROJECT_VIEW_IDS.TEAM ||
-  viewId === KANBAN_PROJECT_VIEW_IDS.PERSONAL;
+  viewId === KANBAN_PROJECT_VIEW_IDS.TEAM;
 
-const getKanbanDefaultView = (viewId: string): KanbanProjectView => {
-  if (viewId === KANBAN_PROJECT_VIEW_IDS.PERSONAL) {
-    return {
-      id: KANBAN_PROJECT_VIEW_IDS.PERSONAL,
-      name: 'Personal',
-      filters: {
-        ...cloneKanbanFilters(DEFAULT_KANBAN_FILTER_STATE),
-        assigneeIds: [KANBAN_ASSIGNEE_FILTER_VALUES.SELF],
-        sortField: 'priority',
-        sortDirection: 'asc',
-      },
-      showSubIssues: getDefaultShowSubIssuesForView(
-        KANBAN_PROJECT_VIEW_IDS.PERSONAL
-      ),
-      showWorkspaces: DEFAULT_KANBAN_SHOW_WORKSPACES,
-      hideBlocked: DEFAULT_KANBAN_HIDE_BLOCKED,
-    };
-  }
-
+const getKanbanDefaultView = (): KanbanProjectView => {
   return {
     id: KANBAN_PROJECT_VIEW_IDS.TEAM,
     name: 'Team',
     filters: cloneKanbanFilters(DEFAULT_KANBAN_FILTER_STATE),
-    showSubIssues: getDefaultShowSubIssuesForView(KANBAN_PROJECT_VIEW_IDS.TEAM),
+    showSubIssues: false,
     showWorkspaces: DEFAULT_KANBAN_SHOW_WORKSPACES,
     hideBlocked: DEFAULT_KANBAN_HIDE_BLOCKED,
   };
 };
 
-const createDefaultKanbanProjectViewPreferences = (
-  viewId: string
-): KanbanProjectViewPreferences => {
-  const view = getKanbanDefaultView(viewId);
-  return {
-    filters: cloneKanbanFilters(view.filters),
-    showSubIssues: view.showSubIssues,
-    showWorkspaces: view.showWorkspaces,
-    hideBlocked: view.hideBlocked,
+const createDefaultKanbanProjectViewPreferences =
+  (): KanbanProjectViewPreferences => {
+    const view = getKanbanDefaultView();
+    return {
+      filters: cloneKanbanFilters(view.filters),
+      showSubIssues: view.showSubIssues,
+      showWorkspaces: view.showWorkspaces,
+      hideBlocked: view.hideBlocked,
+    };
   };
-};
 
 export const resolveKanbanProjectState = (
   projectSelection: KanbanProjectViewSelection | undefined
@@ -192,7 +160,7 @@ export const resolveKanbanProjectState = (
   const activeViewId = isKanbanProjectViewId(requestedViewId ?? '')
     ? (requestedViewId ?? DEFAULT_KANBAN_PROJECT_VIEW_ID)
     : DEFAULT_KANBAN_PROJECT_VIEW_ID;
-  const activeView = getKanbanDefaultView(activeViewId);
+  const activeView = getKanbanDefaultView();
 
   return {
     activeViewId,
@@ -664,7 +632,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
         s.kanbanProjectViewPreferences[projectId] ?? {};
       const existingPreferences =
         projectPreferences[viewId] ??
-        createDefaultKanbanProjectViewPreferences(viewId);
+        createDefaultKanbanProjectViewPreferences();
 
       return {
         kanbanProjectViewPreferences: {
@@ -691,7 +659,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
         s.kanbanProjectViewPreferences[projectId] ?? {};
       const existingPreferences =
         projectPreferences[viewId] ??
-        createDefaultKanbanProjectViewPreferences(viewId);
+        createDefaultKanbanProjectViewPreferences();
 
       return {
         kanbanProjectViewPreferences: {
@@ -718,7 +686,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
         s.kanbanProjectViewPreferences[projectId] ?? {};
       const existingPreferences =
         projectPreferences[viewId] ??
-        createDefaultKanbanProjectViewPreferences(viewId);
+        createDefaultKanbanProjectViewPreferences();
 
       return {
         kanbanProjectViewPreferences: {
@@ -745,7 +713,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
         s.kanbanProjectViewPreferences[projectId] ?? {};
       const existingPreferences =
         projectPreferences[viewId] ??
-        createDefaultKanbanProjectViewPreferences(viewId);
+        createDefaultKanbanProjectViewPreferences();
 
       return {
         kanbanProjectViewPreferences: {

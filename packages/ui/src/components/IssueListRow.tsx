@@ -13,7 +13,6 @@ import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
 import { StatusDot } from './StatusDot';
 import { RunningDots } from './RunningDots';
 import { KanbanBadge } from './KanbanBadge';
-import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
 import { PrBadge } from './PrBadge';
 import { LinearBadge } from './LinearBadge';
 import type { KanbanPullRequest } from './KanbanCardContent';
@@ -88,7 +87,6 @@ export interface IssueListRowProps {
   statusColor: string;
   tags: IssueListRowTag[];
   relationships?: IssueListRowRelationship[];
-  assignees: KanbanAssigneeUser[];
   /**
    * Pull requests linked to this issue, rendered as `PrBadge`s in the
    * row's right-side group (matching the kanban card view's badges).
@@ -120,7 +118,6 @@ export function IssueListRow({
   statusColor,
   tags,
   relationships = [],
-  assignees,
   pullRequests = [],
   linearUrl,
   workspaceActivity,
@@ -208,7 +205,7 @@ export function IssueListRow({
             <span className="text-base text-high truncate">{issue.title}</span>
           </div>
 
-          {/* Right side: PRs, Tags, Assignee, Age */}
+          {/* Right side: PRs, Tags, Age */}
           <div className="flex items-center gap-base shrink-0">
             {(visiblePrs.length > 0 || !!linearUrl) && (
               <div className="flex items-center gap-half">
@@ -252,7 +249,6 @@ export function IssueListRow({
                 )}
               </div>
             )}
-            <KanbanAssignee assignees={assignees} />
             <span className="text-sm text-low w-5 text-right">
               {formatRelativeTime(issue.created_at)}
             </span>

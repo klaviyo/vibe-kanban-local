@@ -134,17 +134,6 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
     []
   );
 
-  // Open assignee selection dialog (uses dynamic import to avoid circular deps)
-  const openAssigneeSelection = useCallback(
-    async (projectId: string, issueIds: string[], isCreateMode = false) => {
-      const { AssigneeSelectionDialog } = await import(
-        '@/shared/dialogs/kanban/AssigneeSelectionDialog'
-      );
-      await AssigneeSelectionDialog.show({ projectId, issueIds, isCreateMode });
-    },
-    []
-  );
-
   // Open sub-issue selection dialog (uses dynamic import to avoid circular deps)
   const openSubIssueSelection = useCallback(
     async (
@@ -216,7 +205,6 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       logsPanelContent,
       openStatusSelection,
       openPrioritySelection,
-      openAssigneeSelection,
       openSubIssueSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
@@ -249,7 +237,6 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
     logsPanelContent,
     openStatusSelection,
     openPrioritySelection,
-    openAssigneeSelection,
     openSubIssueSelection,
     openWorkspaceSelection,
     openRelationshipSelection,
@@ -342,7 +329,6 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       getLabel,
       openStatusSelection,
       openPrioritySelection,
-      openAssigneeSelection,
       openSubIssueSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
@@ -355,7 +341,6 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       getLabel,
       openStatusSelection,
       openPrioritySelection,
-      openAssigneeSelection,
       openSubIssueSelection,
       openWorkspaceSelection,
       openRelationshipSelection,

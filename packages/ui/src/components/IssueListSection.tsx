@@ -14,7 +14,6 @@ import {
   type WorkspaceActivitySignal,
 } from './IssueListRow';
 import type { KanbanPullRequest } from './KanbanCardContent';
-import type { KanbanAssigneeUser } from './KanbanAssignee';
 
 export interface IssueListSectionStatus {
   id: string;
@@ -26,7 +25,6 @@ export interface IssueListSectionProps {
   status: IssueListSectionStatus;
   issueIds: string[];
   issueMap: Record<string, IssueListRowIssue>;
-  issueAssigneesMap: Record<string, KanbanAssigneeUser[]>;
   getTagObjectsForIssue: (issueId: string) => IssueListRowTag[];
   getResolvedRelationshipsForIssue?: (
     issueId: string
@@ -47,7 +45,6 @@ export function IssueListSection({
   status,
   issueIds,
   issueMap,
-  issueAssigneesMap,
   getTagObjectsForIssue,
   getResolvedRelationshipsForIssue,
   workspaceActivityByIssueId,
@@ -125,7 +122,6 @@ export function IssueListSection({
                     statusColor={status.color}
                     tags={getTagObjectsForIssue(issue.id)}
                     relationships={getResolvedRelationshipsForIssue?.(issue.id)}
-                    assignees={issueAssigneesMap[issue.id] ?? []}
                     workspaceActivity={workspaceActivityByIssueId?.get(
                       issue.id
                     )}

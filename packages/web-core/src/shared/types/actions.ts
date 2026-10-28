@@ -73,11 +73,6 @@ export interface ActionExecutorContext {
     projectId: string,
     issueIds: string[]
   ) => Promise<void>;
-  openAssigneeSelection: (
-    projectId: string,
-    issueIds: string[],
-    isCreateMode?: boolean
-  ) => Promise<void>;
   openSubIssueSelection: (
     projectId: string,
     issueId: string,
