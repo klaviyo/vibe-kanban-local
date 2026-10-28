@@ -355,7 +355,6 @@
     "createTag": "만들기",
     "noPrCreated": "PR이 생성되지 않음",
     "noCommentsYet": "아직 댓글이 없습니다",
-    "createdBy": "작성자",
     "comments": "댓글",
     "enterCommentPlaceholder": "댓글을 입력하세요...",
     "attachFile": "파일 첨부",

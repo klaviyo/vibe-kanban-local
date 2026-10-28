@@ -42,7 +42,6 @@ import { ErrorAlert } from './ErrorAlert';
 export type IssuePanelMode = 'create' | 'edit';
 type IssuePriority = IssuePropertyRowProps['priority'];
 type IssueStatus = IssuePropertyRowProps['statuses'][number];
-type IssueCreator = Exclude<IssuePropertyRowProps['creatorUser'], undefined>;
 export interface KanbanIssueTag extends IssueTagBase {
   project_id: string;
 }
@@ -93,7 +92,6 @@ export interface KanbanIssuePanelProps {
 
   // Edit mode data
   issueId?: string | null;
-  creatorUser?: IssueCreator;
   parentIssue?: { id: string; simpleId: string } | null;
   onParentIssueClick?: () => void;
   onRemoveParentIssue?: () => void;
@@ -161,7 +159,6 @@ export function KanbanIssuePanel({
   statuses,
   tags,
   issueId,
-  creatorUser,
   parentIssue,
   onParentIssueClick,
   onRemoveParentIssue,
@@ -197,9 +194,6 @@ export function KanbanIssuePanel({
   const isCreateMode = mode === 'create';
   const breadcrumbTextClass =
     'min-w-0 text-sm text-normal truncate rounded-sm px-1 py-0.5 hover:bg-panel hover:text-high transition-colors';
-  const creatorName =
-    creatorUser?.first_name?.trim() || creatorUser?.username?.trim() || null;
-  const showCreator = !isCreateMode && Boolean(creatorName);
 
   // Description edit state: in edit mode, show preview by default; in create mode, always editable
   const [isDescriptionEditing, setIsDescriptionEditing] =
@@ -301,7 +295,6 @@ export function KanbanIssuePanel({
             statusId={formData.statusId}
             priority={formData.priority}
             statuses={statuses}
-            creatorUser={showCreator ? creatorUser : undefined}
             parentIssue={parentIssue}
             onParentIssueClick={onParentIssueClick}
             onRemoveParentIssue={onRemoveParentIssue}

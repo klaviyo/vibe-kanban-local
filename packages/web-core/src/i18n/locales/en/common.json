@@ -369,7 +369,6 @@
     "createTag": "Create",
     "noPrCreated": "No PR created",
     "noCommentsYet": "No comments yet",
-    "createdBy": "Created by",
     "comments": "Comments",
     "enterCommentPlaceholder": "Enter your comment here...",
     "attachFile": "Attach file",

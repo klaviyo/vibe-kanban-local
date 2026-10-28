@@ -355,7 +355,6 @@
     "createTag": "Crear",
     "noPrCreated": "No se creó PR",
     "noCommentsYet": "Sin comentarios aún",
-    "createdBy": "Creado por",
     "comments": "Comentarios",
     "enterCommentPlaceholder": "Ingresa tu comentario aquí...",
     "attachFile": "Adjuntar archivo",
