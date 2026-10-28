@@ -365,20 +365,16 @@ export function AppBar({
             {tool.icon}
           </button>
         );
-        const tooltip = tool.canDropOnTicket
-          ? `${tool.title} (drag onto a ticket)`
-          : tool.title;
-
         if (!hasMenu) {
           return (
-            <Tooltip content={tooltip} side="right">
+            <Tooltip content={tool.title} side="right">
               {button}
             </Tooltip>
           );
         }
         return (
           <Popover>
-            <Tooltip content={tooltip} side="right">
+            <Tooltip content={tool.title} side="right">
               <PopoverTrigger asChild>{button}</PopoverTrigger>
             </Tooltip>
             <PopoverContent side="right" sideOffset={8} className="w-48 p-1">
