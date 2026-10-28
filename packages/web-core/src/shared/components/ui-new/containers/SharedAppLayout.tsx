@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DropResult } from '@hello-pangea/dnd';
 import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
-import {
-  XIcon,
-  PlusIcon,
-  LayoutIcon,
-  KanbanIcon,
-  DownloadSimpleIcon,
-} from '@phosphor-icons/react';
+import { XIcon, PlusIcon, LayoutIcon, KanbanIcon } from '@phosphor-icons/react';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { ToastHost } from '@/shared/components/ToastHost';
+import { useToastStore } from '@/shared/stores/useToastStore';
+import { ToolTicketDrop } from '@/features/tools/ToolTicketDrop';
+import { renderToolIcon } from '@/features/tools/toolIcons';
+import { ToolMenu } from '@/features/tools/ToolMenu';
+import { useTools } from '@/features/tools/useTools';
+import { useToolRunStore } from '@/shared/stores/useToolRunStore';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { cn } from '@/shared/lib/utils';
 import { isTauriMac } from '@/shared/lib/platform';
@@ -35,7 +36,6 @@ import {
   type CreateRemoteProjectResult,
 } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CommandBarDialog } from '@/shared/dialogs/command-bar/CommandBarDialog';
 import { useCommandBarShortcut } from '@/shared/hooks/useCommandBarShortcut';
 import { useWorkspaceSidebarPreviewController } from '@/shared/hooks/useWorkspaceSidebarPreviewController';
@@ -50,10 +50,52 @@ import { AppBarNotificationBellContainer } from '@/pages/workspaces/AppBarNotifi
 import { WorkspacesSidebarContainer } from '@/pages/workspaces/WorkspacesSidebarContainer';
 import { WorkspacesSidebarReopenTag } from '@vibe/ui/components/WorkspacesSidebar';
 import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHosts';
-import { CloudShutdownExportBanner } from '@/shared/components/CloudShutdownExportBanner';
 
 export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
+  const { tools, runTool, configErrors } = useTools();
+  const showToast = useToastStore((s) => s.show);
+  const configErrorsKey = configErrors.join('\n');
+  useEffect(() => {
+    if (!configErrorsKey) return;
+    showToast({
+      title: 'Tools config problem',
+      detail: configErrorsKey,
+      tone: 'error',
+    });
+  }, [configErrorsKey, showToast]);
+  const runningTools = useToolRunStore((s) => s.running);
+  const appBarTools = useMemo(
+    () =>
+      tools.map((tool) => ({
+        id: tool.id,
+        title: tool.title,
+        color: tool.color,
+        icon: renderToolIcon(tool.icon),
+        hasMenu: tool.click.options.length > 0 || tool.click.dynamic,
+        canDropOnTicket: tool.ticket.options.length > 0 || tool.ticket.dynamic,
+        isRunning: (runningTools[tool.id] ?? 0) > 0,
+      })),
+    [tools, runningTools]
+  );
+  const renderToolMenu = useCallback(
+    (appBarTool: { id: string }, close: () => void) => {
+      const tool = tools.find((t) => t.id === appBarTool.id);
+      return tool ? (
+        <ToolMenu tool={tool} target="click" onDone={close} />
+      ) : null;
+    },
+    [tools]
+  );
+  const handleToolRun = useCallback(
+    (toolId: string, optionId?: string) => {
+      const tool = tools.find((t) => t.id === toolId);
+      if (tool) {
+        void runTool(tool, { target: 'click', option_id: optionId });
+      }
+    },
+    [tools, runTool]
+  );
   const currentDestination = useCurrentAppDestination();
   const isMobile = useIsMobile();
   const mobileFontScale = useUiPreferencesStore((s) => s.mobileFontScale);
@@ -166,10 +208,6 @@ export function SharedAppLayout() {
     [currentDestination]
   );
   const isWorkspacesActive = isLocalWorkspacesDestination(currentDestination);
-  const isExportActive = currentDestination?.kind === 'export';
-  // Local-mode fork: the upstream Bloop cloud shutdown notice does not
-  // apply since this build runs entirely against the local backend.
-  const showCloudShutdownBanner = false;
   const isWorkspaceSidebarPreviewEnabled =
     !isMobile && isWorkspacesActive && !isLeftSidebarVisible;
   const activeProjectId = projectDestination?.projectId ?? null;
@@ -193,10 +231,6 @@ export function SharedAppLayout() {
   const handleWorkspacesClick = useCallback(() => {
     void navigate({ to: '/workspaces' });
   }, [navigate]);
-
-  const handleExportClick = useCallback(() => {
-    appNavigation.goToExport();
-  }, [appNavigation]);
 
   const handleProjectClick = useCallback(
     (projectId: string) => {
@@ -266,13 +300,6 @@ export function SharedAppLayout() {
     }
   }, []);
 
-  const openRelaySettings = useCallback((hostId?: string) => {
-    void SettingsDialog.show({
-      initialSection: 'relay',
-      ...(hostId ? { initialState: { hostId } } : {}),
-    });
-  }, []);
-
   const handleHostClick = useCallback(
     (hostId: string, status: AppBarHostStatus) => {
       if (status === 'offline') {
@@ -287,32 +314,20 @@ export function SharedAppLayout() {
     [navigate]
   );
 
-  const handlePairHostClick = useCallback(() => {
-    openRelaySettings();
-  }, [openRelaySettings]);
-
   return (
     <SyncErrorProvider>
+      <ToolTicketDrop />
+      <ToastHost />
       <div
         className={cn(
           'bg-primary',
           isMobile
             ? 'flex fixed inset-0 pb-[env(safe-area-inset-bottom)]'
-            : cn(
-                'grid grid-cols-[auto_1fr] h-screen',
-                showCloudShutdownBanner
-                  ? 'grid-rows-[auto_auto_1fr]'
-                  : 'grid-rows-[auto_1fr]'
-              )
+            : 'grid grid-cols-[auto_1fr] grid-rows-[auto_1fr] h-screen'
         )}
       >
         {!isMobile && (
           <>
-            {showCloudShutdownBanner && (
-              <div className="col-span-2">
-                <CloudShutdownExportBanner onClick={handleExportClick} />
-              </div>
-            )}
             {/* Desktop corner spacer. */}
             <div
               data-tauri-drag-region
@@ -330,15 +345,15 @@ export function SharedAppLayout() {
               hosts={remoteCloudHosts}
               activeHostId={activeHostId}
               onCreateProject={handleCreateProject}
-              onExportClick={handleExportClick}
+              tools={appBarTools}
+              onToolRun={handleToolRun}
+              renderToolMenu={renderToolMenu}
               onWorkspacesClick={handleWorkspacesClick}
               onHostClick={handleHostClick}
-              onPairHostClick={handlePairHostClick}
               onProjectClick={handleProjectClick}
               onProjectsDragEnd={handleProjectsDragEnd}
               isSavingProjectOrder={isSavingProjectOrder}
               isWorkspacesActive={isWorkspacesActive}
-              isExportActive={isExportActive}
               activeProjectId={activeProjectId}
               isSignedIn={isSignedIn}
               isLoadingProjects={isLoading}
@@ -396,9 +411,6 @@ export function SharedAppLayout() {
 
         {isMobile && (
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            {showCloudShutdownBanner && (
-              <CloudShutdownExportBanner onClick={handleExportClick} />
-            )}
             <NavbarContainer
               mobileMode={isMobile}
               onOrgSelect={setSelectedOrgId}
@@ -446,27 +458,6 @@ export function SharedAppLayout() {
 
             {/* Divider */}
             <div className="border-t border-border mx-4" />
-
-            {/* Export link */}
-            {isSignedIn && (
-              <div className="px-4 py-3">
-                <p className="mb-2 text-xs font-medium text-low">Export</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleExportClick();
-                    setIsDrawerOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-sm text-normal hover:bg-secondary cursor-pointer"
-                >
-                  <DownloadSimpleIcon className="h-4 w-4" />
-                  Export data
-                </button>
-              </div>
-            )}
-
-            {/* Divider */}
-            {isSignedIn && <div className="border-t border-border mx-4" />}
 
             {/* Project list */}
             <div className="flex-1 overflow-y-auto p-2">

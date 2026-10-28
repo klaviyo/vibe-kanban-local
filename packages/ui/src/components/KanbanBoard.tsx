@@ -117,6 +117,7 @@ export const KanbanCard = ({
               className
             )}
             ref={setRefs}
+            data-issue-id={id}
             {...provided.draggableProps}
             {...(isMobile ? {} : provided.dragHandleProps)}
             tabIndex={tabIndex}

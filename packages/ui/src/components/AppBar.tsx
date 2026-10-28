@@ -4,11 +4,9 @@ import {
   Droppable,
   type DropResult,
 } from '@hello-pangea/dnd';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   LayoutIcon,
-  DownloadSimpleIcon,
-  LinkIcon,
   PlusIcon,
   KanbanIcon,
   SpinnerIcon,
@@ -38,10 +36,11 @@ function getProjectInitials(name: string): string {
 interface AppBarProps {
   projects: AppBarProject[];
   hosts?: AppBarHost[];
-  onPairHostClick?: () => void;
   activeHostId?: string | null;
   onCreateProject: () => void;
-  onExportClick?: () => void;
+  tools?: AppBarTool[];
+  onToolRun?: (toolId: string, optionId?: string) => void;
+  renderToolMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
   onWorkspacesClick: () => void;
   onHostClick?: (hostId: string, status: AppBarHostStatus) => void;
   showWorkspacesButton?: boolean;
@@ -49,7 +48,6 @@ interface AppBarProps {
   onProjectsDragEnd: (result: DropResult) => void;
   isSavingProjectOrder?: boolean;
   isWorkspacesActive: boolean;
-  isExportActive?: boolean;
   activeProjectId: string | null;
   isSignedIn?: boolean;
   isLoadingProjects?: boolean;
@@ -61,6 +59,22 @@ interface AppBarProps {
   appVersion?: string | null;
   updateVersion?: string | null;
   onUpdateClick?: () => void;
+}
+
+/** dataTransfer type set while a tool button is dragged. */
+export const APP_BAR_TOOL_DRAG_TYPE = 'application/x-vk-tool';
+
+export interface AppBarTool {
+  id: string;
+  title: string;
+  color?: string | null;
+  icon: ReactNode;
+  /** Click opens a menu (rendered by `renderToolMenu`) instead of running. */
+  hasMenu: boolean;
+  /** Whether the button can be dragged onto a ticket. */
+  canDropOnTicket: boolean;
+  /** A run is in flight; the button shows a spinner and ignores clicks. */
+  isRunning?: boolean;
 }
 
 export interface AppBarProject {
@@ -101,7 +115,7 @@ const appBarItemBaseClassName =
   'flex items-center justify-center w-10 h-10 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand';
 
 type AppBarSection = {
-  key: 'local' | 'remote' | 'projects' | 'export';
+  key: 'local' | 'remote' | 'projects' | 'tools';
   label: string;
   items: AppBarSectionItem[];
 };
@@ -124,6 +138,13 @@ type AppBarSectionItem =
       isActive: boolean;
       onClick?: () => void;
       wrapperClassName?: string;
+    }
+  | {
+      key: string;
+      kind: 'tool-list';
+      tools: AppBarTool[];
+      onRun?: (toolId: string, optionId?: string) => void;
+      renderMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
     }
   | {
       key: string;
@@ -183,13 +204,72 @@ function getHostButtonClassName({
   );
 }
 
+function AppBarToolButton({
+  tool,
+  onRun,
+  renderMenu,
+}: {
+  tool: AppBarTool;
+  onRun?: (toolId: string, optionId?: string) => void;
+  renderMenu?: (tool: AppBarTool, close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const button = (
+    <button
+      type="button"
+      draggable={tool.canDropOnTicket && !tool.isRunning}
+      disabled={tool.isRunning}
+      aria-busy={tool.isRunning}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(APP_BAR_TOOL_DRAG_TYPE, tool.id);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onClick={tool.hasMenu ? undefined : () => onRun?.(tool.id)}
+      className={getStandardAppBarButtonClassName({
+        className: tool.isRunning ? 'cursor-progress opacity-80' : undefined,
+      })}
+      style={tool.color ? { color: tool.color } : undefined}
+      aria-label={tool.title}
+    >
+      {tool.isRunning ? (
+        <SpinnerIcon className="size-icon-base animate-spin" weight="bold" />
+      ) : (
+        tool.icon
+      )}
+    </button>
+  );
+
+  if (!tool.hasMenu) {
+    return (
+      <Tooltip content={tool.title} side="right">
+        {button}
+      </Tooltip>
+    );
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip content={tool.title} side="right">
+        <PopoverTrigger asChild>{button}</PopoverTrigger>
+      </Tooltip>
+      <PopoverContent
+        side="right"
+        sideOffset={8}
+        className="w-auto min-w-48 max-w-80 p-1"
+      >
+        {renderMenu?.(tool, () => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function AppBar({
   projects,
   hosts = [],
-  onPairHostClick,
   activeHostId = null,
   onCreateProject,
-  onExportClick,
+  tools = [],
+  onToolRun,
+  renderToolMenu,
   onWorkspacesClick,
   onHostClick,
   showWorkspacesButton = true,
@@ -197,7 +277,6 @@ export function AppBar({
   onProjectsDragEnd,
   isSavingProjectOrder,
   isWorkspacesActive,
-  isExportActive = false,
   activeProjectId,
   isSignedIn,
   isLoadingProjects,
@@ -230,7 +309,7 @@ export function AppBar({
     });
   }
 
-  if (hosts.length > 0 || onPairHostClick) {
+  if (hosts.length > 0) {
     sections.push({
       key: 'remote',
       label: 'Remote',
@@ -248,19 +327,6 @@ export function AppBar({
             onHostClick?.(host.id, host.status);
           },
         })),
-        ...(onPairHostClick
-          ? [
-              {
-                key: 'pair-remote-device',
-                kind: 'icon-button' as const,
-                label: 'Pair a remote device',
-                icon: LinkIcon,
-                onClick: onPairHostClick,
-                className:
-                  'bg-primary text-muted hover:text-normal hover:bg-tertiary',
-              },
-            ]
-          : []),
       ],
     });
   }
@@ -312,18 +378,17 @@ export function AppBar({
     });
   }
 
-  if (isSignedIn && onExportClick) {
+  if (tools.length > 0) {
     sections.push({
-      key: 'export',
-      label: 'Export',
+      key: 'tools',
+      label: 'Tools',
       items: [
         {
-          key: 'export-data',
-          kind: 'icon-button',
-          label: 'Export data',
-          icon: DownloadSimpleIcon,
-          isActive: isExportActive,
-          onClick: onExportClick,
+          key: 'tool-list',
+          kind: 'tool-list' as const,
+          tools,
+          onRun: onToolRun,
+          renderMenu: renderToolMenu,
         },
       ],
     });
@@ -346,6 +411,19 @@ export function AppBar({
               <item.icon className="size-icon-base" weight="bold" />
             </button>
           </Tooltip>
+        );
+      case 'tool-list':
+        return (
+          <div className="flex flex-col items-center gap-base">
+            {item.tools.map((tool) => (
+              <AppBarToolButton
+                key={tool.id}
+                tool={tool}
+                onRun={item.onRun}
+                renderMenu={item.renderMenu}
+              />
+            ))}
+          </div>
         );
       case 'host-button': {
         const isOffline = item.host.status === 'offline';
@@ -502,7 +580,10 @@ export function AppBar({
       )}
     >
       {sections.map((section) => (
-        <div key={section.key} className="flex flex-col items-center gap-1">
+        <div
+          key={section.key}
+          className="flex flex-col items-center gap-1 mt-half first:mt-0"
+        >
           <AppBarSectionLabel>{section.label}</AppBarSectionLabel>
           {section.items.map((item) => (
             <div

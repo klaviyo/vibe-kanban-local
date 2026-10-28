@@ -72,6 +72,72 @@ cargo build --release --bin server --bin vibe-kanban-mcp
 ./target/release/server
 ```
 
+## Tools
+
+A **Tools** section appears in the sidebar when a tools config exists. Each
+tool is a button that runs one of your scripts. Configs are read on every
+refresh, from (later files override earlier ones per tool `id`):
+
+1. `vibe-kanban-tools.json` next to the server binary
+2. the file named by `$VK_TOOLS_CONFIG`
+3. `~/.vibe-kanban-tools.json`
+
+```json
+{
+  "tools": [{
+    "id": "my-tool",
+    "title": "My Tool",
+    "icon": "robot",
+    "color": "#7c5cff",
+    "command": ["./my-tool.sh", "{option}", "{issue_key}"],
+    "click": { "options": [] },
+    "ticket": {
+      "options": [
+        { "id": "inspect", "title": "Inspect" },
+        { "id": "fix", "title": "Fix", "command": ["./fix.sh", "{issue_id}"] }
+      ]
+    }
+  }]
+}
+```
+
+- **Click:** with no `click.options` the button runs `command`. With options it
+  opens a menu first and runs the chosen one.
+- **Ticket:** drag the button onto a ticket (board card or list row); if the
+  tool has `ticket.options` a menu appears and the chosen option runs against
+  that ticket.
+- **Scripted menus:** set `options_command` on `click` or `ticket` (same argv
+  and placeholders as `command`) and the menu is built by that script each
+  time it opens, so it can reflect state (Start vs Stop, a ticket's status).
+  The script prints a JSON array to stdout; each item is one of:
+  - `{"id": "stop", "title": "Stop"}` — a clickable option (`"type": "option"`
+    is the default; add `"disabled": true` to grey it out). Choosing it runs
+    the tool's `command` with the id as `{option}`.
+  - `{"type": "text", "text": "Daemon running", "tone": "ok"}` — a status line.
+    May contain newlines. `tone` is optional: `ok`, `warn`, `error`, `info`.
+  - `{"type": "header", "text": "Daemon"}` and `{"type": "separator"}`.
+
+  `options_timeout_secs` (default 10, max 30) bounds the script. If it fails or
+  times out the menu shows the error and falls back to the static `options`.
+  For a ticket drop the script receives `{issue_key}`, `{issue_id}` and
+  `{project_id}`.
+- **Commands** are argv arrays, run without a shell, in the config file's
+  directory. An option's own `command` overrides the tool's. Placeholders:
+  `{option}`, `{issue_id}`, `{issue_key}`, `{project_id}` (also exported as
+  `VK_TOOL_OPTION`, `VK_ISSUE_ID`, `VK_ISSUE_KEY`, `VK_PROJECT_ID`,
+  `VK_TOOL_ID`, `VK_TOOL_TARGET`). Relative program paths resolve against the
+  config file's directory and `~/` is expanded.
+- **Icons:** a name from the built-in set (`robot`, `terminal`, `wrench`,
+  `bug`, `rocket`, `sparkle`, `search`, ... see
+  `packages/web-core/src/features/tools/toolIcons.tsx`) or any emoji.
+- **Result:** the server waits up to 30s and shows the exit status and output
+  tail in a toast; slower commands keep running and log to
+  `$TMPDIR/vibe-kanban-tools/`. Scripts that start long-lived processes should
+  background them.
+
+The server only runs commands that appear in these files; requests carry a
+tool id, an option id and an issue id, never a command line.
+
 ## Development
 
 ### Prerequisites

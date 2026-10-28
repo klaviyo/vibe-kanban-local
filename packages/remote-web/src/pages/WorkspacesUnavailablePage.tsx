@@ -32,9 +32,7 @@ export default function WorkspacesUnavailablePage({
   const isBlockedHostState = Boolean(blockedHost);
 
   const openRelaySettings = () => {
-    void SettingsDialog.show({
-      initialSection: "relay",
-    });
+    void SettingsDialog.show({});
   };
 
   return (

@@ -2,7 +2,6 @@
 
 import type { MouseEvent } from 'react';
 import { cn } from '../lib/cn';
-import type { KanbanAssigneeUser } from './KanbanAssignee';
 import {
   IssueListSection,
   type IssueListSectionStatus,
@@ -19,7 +18,6 @@ export interface IssueListViewProps {
   statuses: IssueListSectionStatus[];
   items: Record<string, string[]>;
   issueMap: Record<string, IssueListRowIssue>;
-  issueAssigneesMap: Record<string, KanbanAssigneeUser[]>;
   getTagObjectsForIssue: (issueId: string) => IssueListRowTag[];
   getResolvedRelationshipsForIssue?: (
     issueId: string
@@ -39,7 +37,6 @@ export function IssueListView({
   statuses,
   items,
   issueMap,
-  issueAssigneesMap,
   getTagObjectsForIssue,
   getResolvedRelationshipsForIssue,
   workspaceActivityByIssueId,
@@ -60,7 +57,6 @@ export function IssueListView({
           status={status}
           issueIds={items[status.id] ?? []}
           issueMap={issueMap}
-          issueAssigneesMap={issueAssigneesMap}
           getTagObjectsForIssue={getTagObjectsForIssue}
           getResolvedRelationshipsForIssue={getResolvedRelationshipsForIssue}
           workspaceActivityByIssueId={workspaceActivityByIssueId}

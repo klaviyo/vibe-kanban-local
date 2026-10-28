@@ -26,6 +26,7 @@ pub mod search;
 pub mod sessions;
 pub mod tags;
 pub mod terminal;
+pub mod tools;
 pub mod workspaces;
 
 pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
@@ -46,6 +47,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(search::router(&deployment))
         .merge(preview::api_router())
         .merge(releases::router())
+        .merge(tools::router())
         .merge(sessions::router(&deployment))
         .merge(terminal::router())
         .nest("/remote", remote::router())

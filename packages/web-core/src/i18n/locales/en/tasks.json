@@ -524,6 +524,8 @@
     "baseBranch": "Base:",
     "linkPr": "Link PR",
     "linking": "Linking...",
+    "linkedPrs": "Linked pull requests",
+    "unlink": "Unlink",
     "status": {
       "open": "Open",
       "merged": "Merged",
@@ -531,7 +533,8 @@
       "unknown": "Unknown"
     },
     "errors": {
-      "failed": "Failed to link PR. Please try again."
+      "failed": "Failed to link PR. Please try again.",
+      "unlink": "Failed to unlink PR. Please try again."
     }
   }
 }

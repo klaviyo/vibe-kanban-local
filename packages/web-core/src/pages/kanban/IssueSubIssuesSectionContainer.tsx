@@ -29,23 +29,18 @@ export function IssueSubIssuesSectionContainer({
 }: IssueSubIssuesSectionContainerProps) {
   const { projectId } = useParams({ strict: false });
   const appNavigation = useAppNavigation();
-  const {
-    executeAction,
-    openSubIssueSelection,
-    openPrioritySelection,
-    openAssigneeSelection,
-  } = useActions();
+  const { executeAction, openSubIssueSelection, openPrioritySelection } =
+    useActions();
 
   const {
     issues,
     statuses,
     updateIssue,
     removeIssue,
-    getAssigneesForIssue,
     isLoading: projectLoading,
   } = useProjectContext();
 
-  const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
+  const { isLoading: orgLoading } = useOrgContext();
 
   // Create lookup maps for efficient access
   const statusesById = useMemo(() => {
@@ -71,29 +66,17 @@ export function IssueSubIssuesSectionContainer({
       })
       .map((issue) => {
         const status = statusesById.get(issue.status_id);
-        const assigneeRecords = getAssigneesForIssue(issue.id);
-        const assignees = assigneeRecords
-          .map((a) => membersWithProfilesById.get(a.user_id))
-          .filter((u): u is NonNullable<typeof u> => u !== undefined);
-
         return {
           id: issue.id,
           simpleId: issue.simple_id,
           title: issue.title,
           priority: issue.priority,
           statusColor: status?.color ?? '#888888',
-          assignees,
           createdAt: issue.created_at,
           parentIssueSortOrder: issue.parent_issue_sort_order ?? null,
         };
       });
-  }, [
-    issues,
-    issueId,
-    statusesById,
-    membersWithProfilesById,
-    getAssigneesForIssue,
-  ]);
+  }, [issues, issueId, statusesById]);
 
   // Handle clicking on a sub-issue to navigate to it
   const handleSubIssueClick = useCallback(
@@ -169,15 +152,6 @@ export function IssueSubIssuesSectionContainer({
     [projectId, openPrioritySelection]
   );
 
-  const handleSubIssueAssigneeClick = useCallback(
-    (subIssueId: string) => {
-      if (projectId) {
-        openAssigneeSelection(projectId, [subIssueId]);
-      }
-    },
-    [projectId, openAssigneeSelection]
-  );
-
   const handleSubIssueMarkIndependent = useCallback(
     (subIssueId: string) => {
       updateIssue(subIssueId, {
@@ -232,7 +206,6 @@ export function IssueSubIssuesSectionContainer({
         onSubIssueMarkIndependent={handleSubIssueMarkIndependent}
         onSubIssueDelete={handleSubIssueDelete}
         onSubIssuePriorityClick={handleSubIssuePriorityClick}
-        onSubIssueAssigneeClick={handleSubIssueAssigneeClick}
         isLoading={isLoading}
         isReordering={isReordering}
         actions={actions}

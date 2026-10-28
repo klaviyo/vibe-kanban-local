@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   SpinnerIcon,
-  PlusIcon,
   UserPlusIcon,
   TrashIcon,
   SignInIcon,
@@ -17,10 +16,6 @@ import { useOrganizationInvitations } from '@/shared/hooks/useOrganizationInvita
 import { useOrganizationMutations } from '@/shared/hooks/useOrganizationMutations';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
-import {
-  CreateOrganizationDialog,
-  type CreateOrganizationResult,
-} from '@/shared/dialogs/org/CreateOrganizationDialog';
 import {
   InviteMemberDialog,
   type InviteMemberResult,
@@ -100,7 +95,6 @@ export function OrganizationsSettingsSection() {
 
   // Organization mutations
   const {
-    createOrganization,
     removeMember,
     updateMemberRole,
     revokeInvitation,
@@ -148,21 +142,6 @@ export function OrganizationsSettingsSection() {
       setError(err instanceof Error ? err.message : t('settings.deleteError'));
     },
   });
-
-  const handleCreateOrganization = async () => {
-    try {
-      const result: CreateOrganizationResult =
-        await CreateOrganizationDialog.show();
-
-      if (result.action === 'created' && result.organizationId) {
-        handleOrgSelect(result.organizationId);
-        setSuccess('Organization created successfully');
-        setTimeout(() => setSuccess(null), 3000);
-      }
-    } catch {
-      // Dialog cancelled
-    }
-  };
 
   const handleInviteMember = async () => {
     if (!selectedOrgId) return;
@@ -319,16 +298,6 @@ export function OrganizationsSettingsSection() {
       <SettingsCard
         title={t('settings.title')}
         description={t('settings.description')}
-        headerAction={
-          <PrimaryButton
-            variant="secondary"
-            value={t('createDialog.createButton')}
-            onClick={handleCreateOrganization}
-            disabled={createOrganization.isPending}
-          >
-            <PlusIcon className="size-icon-xs mr-1" weight="bold" />
-          </PrimaryButton>
-        }
       >
         <SettingsField
           label={t('settings.selectLabel')}
@@ -427,18 +396,6 @@ export function OrganizationsSettingsSection() {
                   <p className="text-sm font-medium text-high">
                     {t('personalOrg.cannotInvite')}
                   </p>
-                  <p className="text-sm text-low mt-1">
-                    {t('personalOrg.createOrgPrompt')}
-                  </p>
-                  <PrimaryButton
-                    variant="secondary"
-                    value={t('personalOrg.createOrgButton')}
-                    onClick={handleCreateOrganization}
-                    className="mt-3"
-                    disabled={createOrganization.isPending}
-                  >
-                    <PlusIcon className="size-icon-xs mr-1" weight="bold" />
-                  </PrimaryButton>
                 </div>
               </div>
             </div>

@@ -1,12 +1,12 @@
 use api_types::{
-    CreateProjectRequest, DeleteResponse, ListProjectsResponse, MutationResponse, Project,
-    UpdateProjectRequest,
+    BulkUpdateProjectsRequest, BulkUpdateProjectsResponse, CreateProjectRequest, DeleteResponse,
+    ListProjectsResponse, MutationResponse, Project, UpdateProjectRequest,
 };
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
     response::Json as ResponseJson,
-    routing::get,
+    routing::{get, post},
 };
 use db::models::project::{CreateProject, ProjectRow};
 use deployment::Deployment;
@@ -27,6 +27,7 @@ pub(super) fn router() -> Router<DeploymentImpl> {
             "/projects",
             get(list_remote_projects).post(create_remote_project),
         )
+        .route("/projects/bulk", post(bulk_update_remote_projects))
         .route(
             "/projects/{project_id}",
             get(get_remote_project)
@@ -103,6 +104,31 @@ async fn update_remote_project(
         data: project,
         txid: response.txid,
     })))
+}
+
+async fn bulk_update_remote_projects(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<BulkUpdateProjectsRequest>,
+) -> Result<ResponseJson<ApiResponse<BulkUpdateProjectsResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let updates: Vec<_> = request
+        .updates
+        .into_iter()
+        .map(|item| (item.id, item.changes))
+        .collect();
+    let response = ProjectRow::update_many(pool, &updates).await?;
+    let data = response
+        .data
+        .into_iter()
+        .map(Project::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ApiError::BadRequest(format!("project missing organization_id: {:?}", e)))?;
+    Ok(ResponseJson(ApiResponse::success(
+        BulkUpdateProjectsResponse {
+            data,
+            txid: response.txid,
+        },
+    )))
 }
 
 async fn delete_remote_project(

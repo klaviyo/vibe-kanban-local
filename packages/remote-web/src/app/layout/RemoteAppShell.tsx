@@ -145,11 +145,8 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
     return segments[projectSegmentIndex + 1] ?? null;
   }, [location.pathname]);
 
-  const openRelaySettings = useCallback((hostId?: string) => {
-    void SettingsDialog.show({
-      initialSection: "relay",
-      ...(hostId ? { initialState: { hostId } } : {}),
-    });
+  const openRelaySettings = useCallback((_hostId?: string) => {
+    void SettingsDialog.show({});
   }, []);
 
   const handleWorkspacesClick = useCallback(() => {
@@ -254,7 +251,6 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
           <AppBar
             projects={projects}
             hosts={relayHosts}
-            onPairHostClick={isSignedIn ? handlePairHostClick : undefined}
             activeHostId={activeHostId}
             onCreateProject={handleCreateProject}
             onWorkspacesClick={handleWorkspacesClick}

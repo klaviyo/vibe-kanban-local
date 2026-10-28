@@ -64,8 +64,6 @@ struct McpListIssuesRequest {
     search: Option<String>,
     #[schemars(description = "Filter by issue simple ID (case-insensitive exact match)")]
     simple_id: Option<String>,
-    #[schemars(description = "Filter to issues assigned to this user ID")]
-    assignee_user_id: Option<Uuid>,
     #[schemars(description = "Filter to issues having this tag ID")]
     tag_id: Option<Uuid>,
     #[schemars(description = "Filter to issues having a tag with this name (case-insensitive)")]
@@ -349,7 +347,6 @@ impl McpServer {
             parent_issue_id,
             search,
             simple_id,
-            assignee_user_id,
             tag_id,
             tag_name,
             sort_field,
@@ -446,7 +443,7 @@ impl McpServer {
                 parent_issue_id,
                 search,
                 simple_id,
-                assignee_user_id,
+                assignee_user_id: None,
                 tag_id,
                 tag_ids,
                 sort_field,

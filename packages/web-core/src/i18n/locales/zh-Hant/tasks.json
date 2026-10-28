@@ -524,6 +524,8 @@
     "baseBranch": "基礎分支：",
     "linkPr": "連結 PR",
     "linking": "連結中...",
+    "linkedPrs": "已連結的拉取請求",
+    "unlink": "取消連結",
     "status": {
       "open": "開啟",
       "merged": "已合併",
@@ -531,7 +533,8 @@
       "unknown": "未知"
     },
     "errors": {
-      "failed": "連結 PR 失敗，請重試。"
+      "failed": "連結 PR 失敗，請重試。",
+      "unlink": "取消連結 PR 失敗，請重試。"
     }
   }
 }

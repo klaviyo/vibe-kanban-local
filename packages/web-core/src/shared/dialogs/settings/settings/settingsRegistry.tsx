@@ -5,7 +5,6 @@ import {
   CloudIcon,
   CpuIcon,
   PlugIcon,
-  BroadcastIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { GeneralSettingsSection } from './GeneralSettingsSection';
@@ -14,7 +13,6 @@ import { OrganizationsSettingsSection } from './OrganizationsSettingsSection';
 import { RemoteProjectsSettingsSection } from './RemoteProjectsSettingsSection';
 import { AgentsSettingsSection } from './AgentsSettingsSection';
 import { McpSettingsSection } from './McpSettingsSection';
-import { RelaySettingsSectionContent } from './RelaySettingsSection';
 
 export type SettingsSectionType =
   | 'general'
@@ -22,8 +20,7 @@ export type SettingsSectionType =
   | 'organizations'
   | 'remote-projects'
   | 'agents'
-  | 'mcp'
-  | 'relay';
+  | 'mcp';
 
 export type SettingsSectionGroup = 'host' | 'universal';
 
@@ -36,7 +33,6 @@ export type SettingsSectionInitialState = {
     | undefined;
   agents: { executor?: string; variant?: string } | undefined;
   mcp: undefined;
-  relay: { hostId?: string } | undefined;
 };
 
 export interface SettingsSectionDefinition {
@@ -52,7 +48,6 @@ export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'mcp', icon: PlugIcon, group: 'host' },
   { id: 'organizations', icon: BuildingsIcon, group: 'universal' },
   { id: 'remote-projects', icon: CloudIcon, group: 'universal' },
-  { id: 'relay', icon: BroadcastIcon, group: 'universal' },
 ];
 
 export function isHostSpecificSettingsSection(
@@ -66,8 +61,7 @@ export function isHostSpecificSettingsSection(
 
 export function renderSettingsSection(
   type: SettingsSectionType,
-  initialState?: SettingsSectionInitialState[SettingsSectionType],
-  onClose?: () => void
+  initialState?: SettingsSectionInitialState[SettingsSectionType]
 ) {
   switch (type) {
     case 'general':
@@ -92,13 +86,6 @@ export function renderSettingsSection(
       return <AgentsSettingsSection />;
     case 'mcp':
       return <McpSettingsSection />;
-    case 'relay':
-      return (
-        <RelaySettingsSectionContent
-          initialState={initialState as SettingsSectionInitialState['relay']}
-          onClose={onClose}
-        />
-      );
     default:
       return <GeneralSettingsSection />;
   }

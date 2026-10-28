@@ -191,7 +191,12 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
     prsErrorMessage = t('createWorkspaceFromPr.errors.failedToLoadPrs');
   }
 
-  const { insertPullRequestIssue } = useProjectContext();
+  const {
+    insertPullRequestIssue,
+    removePullRequestIssue,
+    pullRequestIssues,
+    pullRequests,
+  } = useProjectContext();
   const queryClient = useQueryClient();
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -226,6 +231,35 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
     activeTab === 'url'
       ? !!prInfo && !isLinking
       : !!selectedPr && !isLinking && !isLoadingPrs;
+
+  const linkedPrs = useMemo(
+    () =>
+      pullRequestIssues
+        .filter((link) => link.issue_id === issueId)
+        .flatMap((link) => {
+          const pr = pullRequests.find((p) => p.id === link.pull_request_id);
+          return pr ? [{ linkId: link.id, pr }] : [];
+        }),
+    [pullRequestIssues, pullRequests, issueId]
+  );
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+
+  const handleUnlink = async (linkId: string) => {
+    setUnlinkingId(linkId);
+    setLinkError(null);
+    try {
+      await removePullRequestIssue(linkId).persisted;
+      await queryClient.invalidateQueries({
+        queryKey: ['shape', 'pull_requests'],
+      });
+    } catch (err) {
+      setLinkError(
+        err instanceof Error ? err.message : t('linkPrToIssue.errors.unlink')
+      );
+    } finally {
+      setUnlinkingId(null);
+    }
+  };
 
   const handleLink = async () => {
     if (!canLink) return;
@@ -306,6 +340,35 @@ function LinkPrToIssueContent({ issueId }: { issueId: string }) {
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {linkedPrs.length > 0 && (
+            <div className="space-y-2">
+              <Label>{t('linkPrToIssue.linkedPrs')}</Label>
+              {linkedPrs.map(({ linkId, pr }) => (
+                <div
+                  key={linkId}
+                  className="flex items-center justify-between gap-2 rounded-md border p-2"
+                >
+                  <a
+                    href={pr.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm truncate hover:underline"
+                  >
+                    #{pr.number} ({statusLabel(pr.status)})
+                  </a>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleUnlink(linkId)}
+                    disabled={unlinkingId === linkId}
+                  >
+                    {t('linkPrToIssue.unlink')}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Tab switcher */}
           <div className="flex gap-1 rounded-md bg-muted p-1">
             <button

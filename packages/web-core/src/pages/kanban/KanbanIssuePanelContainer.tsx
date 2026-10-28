@@ -8,7 +8,6 @@ import {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
-import type { OrganizationMemberWithProfile } from 'shared/types';
 import type { IssuePriority } from 'shared/remote-types';
 import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
@@ -106,7 +105,6 @@ export function KanbanIssuePanelContainer({
     issueTags,
     insertIssue,
     updateIssue,
-    insertIssueAssignee,
     insertIssueTag,
     removeIssueTag,
     insertTag,
@@ -176,23 +174,16 @@ export function KanbanIssuePanelContainer({
     resetKanbanIssueComposer(issueComposerKey);
   }, [issueComposerKey]);
 
-  const { isLoading: orgLoading, membersWithProfilesById } = useOrgContext();
+  const { isLoading: orgLoading } = useOrgContext();
 
   // Get action methods from actions context
-  const { openStatusSelection, openPrioritySelection, openAssigneeSelection } =
-    useActions();
+  const { openStatusSelection, openPrioritySelection } = useActions();
 
   // Find selected issue if in edit mode
   const selectedIssue = useMemo(() => {
     if (kanbanCreateMode || !selectedKanbanIssueId) return null;
     return issues.find((i) => i.id === selectedKanbanIssueId) ?? null;
   }, [issues, selectedKanbanIssueId, kanbanCreateMode]);
-
-  const creatorUserId = selectedIssue?.creator_user_id ?? null;
-  const issueCreator = useMemo(() => {
-    if (!creatorUserId) return null;
-    return membersWithProfilesById.get(creatorUserId) ?? null;
-  }, [membersWithProfilesById, creatorUserId]);
 
   // Find parent issue if current issue has one
   const parentIssue = useMemo(() => {
@@ -359,13 +350,6 @@ export function KanbanIssuePanelContainer({
       createModeDefaults,
     });
   }, [formState, mode, createModeDefaults]);
-
-  // Resolve assignee IDs to full profiles for avatar display
-  const displayAssigneeUsers = useMemo(() => {
-    return displayData.assigneeIds
-      .map((id) => membersWithProfilesById.get(id))
-      .filter((m): m is OrganizationMemberWithProfile => m != null);
-  }, [displayData.assigneeIds, membersWithProfilesById]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -714,27 +698,6 @@ export function KanbanIssuePanelContainer({
           return;
         }
 
-        // For assigneeIds, open the assignee selection dialog with callback
-        if (field === 'assigneeIds') {
-          const { AssigneeSelectionDialog } = await import(
-            '@/shared/dialogs/kanban/AssigneeSelectionDialog'
-          );
-          await AssigneeSelectionDialog.show({
-            projectId,
-            issueIds: [],
-            isCreateMode: true,
-            createModeAssigneeIds: createFormData?.assigneeIds ?? [],
-            onCreateModeAssigneesChange: (assigneeIds: string[]) => {
-              updateIssueComposerDraft({ assigneeIds });
-              dispatchFormState({
-                type: 'setCreateAssigneeIds',
-                assigneeIds,
-              });
-            },
-          });
-          return;
-        }
-
         // For other fields, just update the form data
         dispatchFormState({
           type: 'patchCreateFormData',
@@ -775,9 +738,6 @@ export function KanbanIssuePanelContainer({
       } else if (field === 'priority') {
         // Priority changes go through the command bar priority selection
         openPrioritySelection(projectId, [selectedKanbanIssueId]);
-      } else if (field === 'assigneeIds') {
-        // Assignee changes go through the assignee selection dialog
-        openAssigneeSelection(projectId, [selectedKanbanIssueId], false);
       } else if (field === 'tagIds') {
         // Handle tag changes via junction table
         const newTagIds = value as string[];
@@ -818,7 +778,6 @@ export function KanbanIssuePanelContainer({
       debouncedSaveDescription,
       openStatusSelection,
       openPrioritySelection,
-      openAssigneeSelection,
       updateIssueComposerDraft,
       setCreateDraftWorkspaceByDefault,
       issueTags,
@@ -886,14 +845,6 @@ export function KanbanIssuePanelContainer({
           }
           clearAttachments();
         }
-
-        // Create assignee records for all selected assignees
-        displayData.assigneeIds.forEach((userId) => {
-          insertIssueAssignee({
-            issue_id: syncedIssue.id,
-            user_id: userId,
-          });
-        });
 
         // Create tag records if tags were selected
         for (const tagId of displayData.tagIds) {
@@ -963,7 +914,6 @@ export function KanbanIssuePanelContainer({
     projectId,
     issues,
     insertIssue,
-    insertIssueAssignee,
     insertIssueTag,
     openIssue,
     kanbanCreateDefaultParentIssueId,
@@ -1071,12 +1021,10 @@ export function KanbanIssuePanelContainer({
       mode={mode}
       displayId={displayId}
       formData={displayData}
-      assigneeUsers={displayAssigneeUsers}
       onFormChange={handlePropertyChange}
       statuses={sortedStatuses}
       tags={tags}
       issueId={selectedKanbanIssueId}
-      creatorUser={issueCreator}
       parentIssue={parentIssue}
       onParentIssueClick={handleParentIssueClick}
       onRemoveParentIssue={handleRemoveParentIssue}

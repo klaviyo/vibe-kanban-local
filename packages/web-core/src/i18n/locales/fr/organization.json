@@ -1,15 +1,4 @@
 {
-  "createDialog": {
-    "title": "Create New Organization",
-    "description": "Create a new organization to collaborate with your team.",
-    "nameLabel": "Organization Name",
-    "namePlaceholder": "e.g., Acme Corporation",
-    "slugLabel": "Slug",
-    "slugPlaceholder": "e.g., acme-corporation",
-    "slugHelper": "Used in URLs. Lowercase letters, numbers, and hyphens only.",
-    "creating": "Creating...",
-    "createButton": "Create Organization"
-  },
   "inviteDialog": {
     "title": "Inviter un membre",
     "description": "Envoyez une invitation pour rejoindre votre organisation.",
@@ -70,8 +59,6 @@
     "openInBrowser": "S'ouvre dans un nouvel onglet du navigateur"
   },
   "personalOrg": {
-    "cannotInvite": "Les organisations personnelles ne peuvent pas avoir de membres supplémentaires.",
-    "createOrgPrompt": "Create an organization to collaborate with others.",
-    "createOrgButton": "Create Organization"
+    "cannotInvite": "Les organisations personnelles ne peuvent pas avoir de membres supplémentaires."
   }
 }

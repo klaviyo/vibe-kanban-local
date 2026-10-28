@@ -524,6 +524,8 @@
     "baseBranch": "Base :",
     "linkPr": "Lier le PR",
     "linking": "Liaison en cours...",
+    "linkedPrs": "Pull requests liées",
+    "unlink": "Délier",
     "status": {
       "open": "Ouvert",
       "merged": "Fusionné",
@@ -531,7 +533,8 @@
       "unknown": "Inconnu"
     },
     "errors": {
-      "failed": "Échec de la liaison du PR. Veuillez réessayer."
+      "failed": "Échec de la liaison du PR. Veuillez réessayer.",
+      "unlink": "Échec de la dissociation du PR. Veuillez réessayer."
     }
   }
 }

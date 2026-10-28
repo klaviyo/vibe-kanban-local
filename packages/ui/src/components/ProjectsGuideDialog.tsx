@@ -52,7 +52,7 @@ const ProjectsGuideDialogImpl = NiceModal.create<NoProps>(() => {
       title: t('kanban.projectsGuide.issues.title', 'Issues'),
       content: t(
         'kanban.projectsGuide.issues.content',
-        'Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more.'
+        'Each issue represents a feature or problem to solve. Issues have statuses, priorities, tags, relationships, comments, sub-issues and more.'
       ),
       imageSrc: '/guide-images/projects-issue.png',
     },

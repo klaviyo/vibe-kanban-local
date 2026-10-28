@@ -38,6 +38,22 @@ struct McpLinkPrToIssueResponse {
     target_branch_name: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpUnlinkPrFromIssueRequest {
+    #[schemars(description = "The issue to detach the pull request from.")]
+    issue_id: Uuid,
+    #[schemars(
+        description = "Full pull request URL, exactly as it was linked (e.g. 'https://github.com/owner/repo/pull/123')."
+    )]
+    pr_url: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct McpUnlinkPrFromIssueResponse {
+    issue_id: String,
+    pr_url: String,
+}
+
 fn merge_status_to_pr_status(status: MergeStatus) -> PullRequestStatus {
     match status {
         MergeStatus::Merged => PullRequestStatus::Merged,
@@ -111,6 +127,30 @@ impl McpServer {
             pr_number,
             status: pr_status_label(&payload.status).to_string(),
             target_branch_name: payload.target_branch_name,
+        })
+    }
+
+    #[tool(
+        description = "Unlink a pull request from an issue. Removes only the link; the pull request itself is untouched. Succeeds even if the pair was not linked."
+    )]
+    async fn unlink_pr_from_issue(
+        &self,
+        Parameters(McpUnlinkPrFromIssueRequest { issue_id, pr_url }): Parameters<
+            McpUnlinkPrFromIssueRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url("/api/remote/pull-request-issues");
+        let request = self.client.delete(&url).query(&[
+            ("issue_id", issue_id.to_string()),
+            ("pr_url", pr_url.clone()),
+        ]);
+        if let Err(e) = self.send_empty_json(request).await {
+            return Ok(McpServer::tool_error(e));
+        }
+
+        McpServer::success(&McpUnlinkPrFromIssueResponse {
+            issue_id: issue_id.to_string(),
+            pr_url,
         })
     }
 }
