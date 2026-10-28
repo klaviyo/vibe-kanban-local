@@ -72,6 +72,57 @@ cargo build --release --bin server --bin vibe-kanban-mcp
 ./target/release/server
 ```
 
+## Tools
+
+A **Tools** section appears in the sidebar when a tools config exists. Each
+tool is a button that runs one of your scripts. Configs are read on every
+refresh, from (later files override earlier ones per tool `id`):
+
+1. `vibe-kanban-tools.json` next to the server binary
+2. the file named by `$VK_TOOLS_CONFIG`
+3. `~/.vibe-kanban-tools.json`
+
+```json
+{
+  "tools": [{
+    "id": "my-tool",
+    "title": "My Tool",
+    "icon": "robot",
+    "color": "#7c5cff",
+    "command": ["./my-tool.sh", "{option}", "{issue_key}"],
+    "click": { "options": [] },
+    "ticket": {
+      "options": [
+        { "id": "inspect", "title": "Inspect" },
+        { "id": "fix", "title": "Fix", "command": ["./fix.sh", "{issue_id}"] }
+      ]
+    }
+  }]
+}
+```
+
+- **Click:** with no `click.options` the button runs `command`. With options it
+  opens a menu first and runs the chosen one.
+- **Ticket:** drag the button onto a ticket (board card or list row); if the
+  tool has `ticket.options` a menu appears and the chosen option runs against
+  that ticket.
+- **Commands** are argv arrays, run without a shell, in the config file's
+  directory. An option's own `command` overrides the tool's. Placeholders:
+  `{option}`, `{issue_id}`, `{issue_key}`, `{project_id}` (also exported as
+  `VK_TOOL_OPTION`, `VK_ISSUE_ID`, `VK_ISSUE_KEY`, `VK_PROJECT_ID`,
+  `VK_TOOL_ID`, `VK_TOOL_TARGET`). Relative program paths resolve against the
+  config file's directory and `~/` is expanded.
+- **Icons:** a name from the built-in set (`robot`, `terminal`, `wrench`,
+  `bug`, `rocket`, `sparkle`, `search`, ... see
+  `packages/web-core/src/features/tools/toolIcons.tsx`) or any emoji.
+- **Result:** the server waits up to 30s and shows the exit status and output
+  tail in a toast; slower commands keep running and log to
+  `$TMPDIR/vibe-kanban-tools/`. Scripts that start long-lived processes should
+  background them.
+
+The server only runs commands that appear in these files; requests carry a
+tool id, an option id and an issue id, never a command line.
+
 ## Development
 
 ### Prerequisites

@@ -141,6 +141,7 @@ export function IssueListRow({
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
+          data-issue-id={issue.id}
           {...provided.draggableProps}
           role="button"
           tabIndex={0}

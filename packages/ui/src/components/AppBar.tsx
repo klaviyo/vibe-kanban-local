@@ -7,7 +7,6 @@ import {
 import type { ReactNode } from 'react';
 import {
   LayoutIcon,
-  DownloadSimpleIcon,
   PlusIcon,
   KanbanIcon,
   SpinnerIcon,
@@ -39,7 +38,8 @@ interface AppBarProps {
   hosts?: AppBarHost[];
   activeHostId?: string | null;
   onCreateProject: () => void;
-  onExportClick?: () => void;
+  tools?: AppBarTool[];
+  onToolRun?: (toolId: string, optionId?: string) => void;
   onWorkspacesClick: () => void;
   onHostClick?: (hostId: string, status: AppBarHostStatus) => void;
   showWorkspacesButton?: boolean;
@@ -47,7 +47,6 @@ interface AppBarProps {
   onProjectsDragEnd: (result: DropResult) => void;
   isSavingProjectOrder?: boolean;
   isWorkspacesActive: boolean;
-  isExportActive?: boolean;
   activeProjectId: string | null;
   isSignedIn?: boolean;
   isLoadingProjects?: boolean;
@@ -59,6 +58,20 @@ interface AppBarProps {
   appVersion?: string | null;
   updateVersion?: string | null;
   onUpdateClick?: () => void;
+}
+
+/** dataTransfer type set while a tool button is dragged. */
+export const APP_BAR_TOOL_DRAG_TYPE = 'application/x-vk-tool';
+
+export interface AppBarTool {
+  id: string;
+  title: string;
+  color?: string | null;
+  icon: ReactNode;
+  /** Options shown in a menu on click; empty runs the tool directly. */
+  clickOptions: { id: string; title: string }[];
+  /** Whether the button can be dragged onto a ticket. */
+  canDropOnTicket: boolean;
 }
 
 export interface AppBarProject {
@@ -99,7 +112,7 @@ const appBarItemBaseClassName =
   'flex items-center justify-center w-10 h-10 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand';
 
 type AppBarSection = {
-  key: 'local' | 'remote' | 'projects' | 'export';
+  key: 'local' | 'remote' | 'projects' | 'tools';
   label: string;
   items: AppBarSectionItem[];
 };
@@ -122,6 +135,12 @@ type AppBarSectionItem =
       isActive: boolean;
       onClick?: () => void;
       wrapperClassName?: string;
+    }
+  | {
+      key: string;
+      kind: 'tool-button';
+      tool: AppBarTool;
+      onRun?: (toolId: string, optionId?: string) => void;
     }
   | {
       key: string;
@@ -186,7 +205,8 @@ export function AppBar({
   hosts = [],
   activeHostId = null,
   onCreateProject,
-  onExportClick,
+  tools = [],
+  onToolRun,
   onWorkspacesClick,
   onHostClick,
   showWorkspacesButton = true,
@@ -194,7 +214,6 @@ export function AppBar({
   onProjectsDragEnd,
   isSavingProjectOrder,
   isWorkspacesActive,
-  isExportActive = false,
   activeProjectId,
   isSignedIn,
   isLoadingProjects,
@@ -296,20 +315,16 @@ export function AppBar({
     });
   }
 
-  if (isSignedIn && onExportClick) {
+  if (tools.length > 0) {
     sections.push({
-      key: 'export',
-      label: 'Export',
-      items: [
-        {
-          key: 'export-data',
-          kind: 'icon-button',
-          label: 'Export data',
-          icon: DownloadSimpleIcon,
-          isActive: isExportActive,
-          onClick: onExportClick,
-        },
-      ],
+      key: 'tools',
+      label: 'Tools',
+      items: tools.map((tool) => ({
+        key: `tool-${tool.id}`,
+        kind: 'tool-button' as const,
+        tool,
+        onRun: onToolRun,
+      })),
     });
   }
 
@@ -331,6 +346,57 @@ export function AppBar({
             </button>
           </Tooltip>
         );
+      case 'tool-button': {
+        const { tool, onRun } = item;
+        const hasMenu = tool.clickOptions.length > 0;
+        const button = (
+          <button
+            type="button"
+            draggable={tool.canDropOnTicket}
+            onDragStart={(e) => {
+              e.dataTransfer.setData(APP_BAR_TOOL_DRAG_TYPE, tool.id);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onClick={hasMenu ? undefined : () => onRun?.(tool.id)}
+            className={getStandardAppBarButtonClassName({})}
+            style={tool.color ? { color: tool.color } : undefined}
+            aria-label={tool.title}
+          >
+            {tool.icon}
+          </button>
+        );
+        const tooltip = tool.canDropOnTicket
+          ? `${tool.title} (drag onto a ticket)`
+          : tool.title;
+
+        if (!hasMenu) {
+          return (
+            <Tooltip content={tooltip} side="right">
+              {button}
+            </Tooltip>
+          );
+        }
+        return (
+          <Popover>
+            <Tooltip content={tooltip} side="right">
+              <PopoverTrigger asChild>{button}</PopoverTrigger>
+            </Tooltip>
+            <PopoverContent side="right" sideOffset={8} className="w-48 p-1">
+              {tool.clickOptions.map((option) => (
+                <PopoverClose asChild key={option.id}>
+                  <button
+                    type="button"
+                    onClick={() => onRun?.(tool.id, option.id)}
+                    className="block w-full rounded-sm px-base py-half text-left text-sm text-normal hover:bg-secondary"
+                  >
+                    {option.title}
+                  </button>
+                </PopoverClose>
+              ))}
+            </PopoverContent>
+          </Popover>
+        );
+      }
       case 'host-button': {
         const isOffline = item.host.status === 'offline';
 
