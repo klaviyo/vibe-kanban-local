@@ -430,6 +430,7 @@
     "priority": "Priority",
     "subIssuesFilterLabel": "Sub-issues",
     "workspacesFilterLabel": "Workspaces",
+    "selectTags": "Seleccionar etiquetas...",
     "relationships": "Relationships",
     "noRelationships": "No relationships",
     "openProjectsGuide": "Projects guide",

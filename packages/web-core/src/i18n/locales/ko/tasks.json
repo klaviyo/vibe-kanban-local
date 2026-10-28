@@ -524,6 +524,8 @@
     "baseBranch": "베이스:",
     "linkPr": "PR 연결",
     "linking": "연결 중...",
+    "linkedPrs": "연결된 풀 리퀘스트",
+    "unlink": "연결 해제",
     "status": {
       "open": "열림",
       "merged": "병합됨",
@@ -531,7 +533,8 @@
       "unknown": "알 수 없음"
     },
     "errors": {
-      "failed": "PR 연결에 실패했습니다. 다시 시도해 주세요."
+      "failed": "PR 연결에 실패했습니다. 다시 시도해 주세요.",
+      "unlink": "PR 연결 해제에 실패했습니다. 다시 시도해 주세요."
     }
   }
 }
