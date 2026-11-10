@@ -116,6 +116,7 @@ fn generate_types_content() -> String {
         db::models::requests::CreateAndStartWorkspaceResponse::decl(),
         git_host::UnifiedPrComment::decl(),
         git_host::ProviderKind::decl(),
+        git_host::CiStatus::decl(),
         git_host::PullRequestDetail::decl(),
         git::GitRemote::decl(),
         server::routes::repo::ListPrsError::decl(),

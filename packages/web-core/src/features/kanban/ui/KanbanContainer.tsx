@@ -699,6 +699,8 @@ export function KanbanContainer() {
           number: pr.number,
           url: pr.url,
           status: pr.status,
+          isDraft: pr.is_draft,
+          ciStatus: pr.ci_status,
         }))
       );
     }
@@ -872,9 +874,6 @@ export function KanbanContainer() {
       if (e && (e.metaKey || e.ctrlKey || e.shiftKey)) {
         handleIssueClick(issueId, e);
       } else {
-        if (selectedIssueIds.size > 0) {
-          clearSelection();
-        }
         // Set as anchor so Shift+Click from this issue works
         setAnchor(issueId);
         openIssue(issueId);
@@ -883,8 +882,6 @@ export function KanbanContainer() {
     [
       openIssue,
       handleIssueClick,
-      selectedIssueIds.size,
-      clearSelection,
       setAnchor,
     ]
   );

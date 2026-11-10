@@ -32,17 +32,12 @@ export const useIssueSelectionStore = create<IssueSelectionState>(
     orderedIssueIds: [],
 
     toggleIssue: (issueId: string) => {
-      const { selectedIssueIds, anchorIssueId } = get();
+      const { selectedIssueIds } = get();
       const next = new Set(selectedIssueIds);
       const isDeselecting = next.has(issueId);
       if (isDeselecting) {
         next.delete(issueId);
       } else {
-        // When starting multi-select from an opened issue, include the
-        // anchor (the opened issue) so both end up selected.
-        if (next.size === 0 && anchorIssueId && anchorIssueId !== issueId) {
-          next.add(anchorIssueId);
-        }
         next.add(issueId);
       }
       // Only move anchor/cursor when selecting, not when deselecting

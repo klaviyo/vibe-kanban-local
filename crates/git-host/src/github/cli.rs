@@ -19,7 +19,7 @@ use url::Url;
 use utils::{command_ext::NoWindowExt, shell::resolve_executable_path_blocking};
 
 use crate::types::{
-    CreatePrRequest, PrComment, PrCommentAuthor, PrReviewComment, PullRequestDetail,
+    CiStatus, CreatePrRequest, PrComment, PrCommentAuthor, PrReviewComment, PullRequestDetail,
     ReviewCommentUser,
 };
 
@@ -117,6 +117,47 @@ struct GhPrResponse {
     head_ref_name: Option<String>,
     #[serde(default)]
     updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    is_draft: bool,
+    #[serde(default)]
+    status_check_rollup: Vec<GhCheck>,
+}
+
+/// One entry of `statusCheckRollup`: a CheckRun (`status`/`conclusion`) or a
+/// commit StatusContext (`state`).
+#[derive(Deserialize)]
+struct GhCheck {
+    status: Option<String>,
+    conclusion: Option<String>,
+    state: Option<String>,
+}
+
+fn ci_status_from_rollup(checks: &[GhCheck]) -> Option<CiStatus> {
+    if checks.is_empty() {
+        return None;
+    }
+    let mut pending = false;
+    for c in checks {
+        let result = c
+            .conclusion
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(c.state.as_deref())
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        let running = c.status.as_deref().is_some_and(|s| s != "COMPLETED");
+        match result.as_str() {
+            "FAILURE" | "ERROR" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE"
+            | "ACTION_REQUIRED" => return Some(CiStatus::Failing),
+            "SUCCESS" | "NEUTRAL" | "SKIPPED" if !running => {}
+            _ => pending = true,
+        }
+    }
+    Some(if pending {
+        CiStatus::Pending
+    } else {
+        CiStatus::Passing
+    })
 }
 
 #[derive(Debug, Error)]
@@ -268,7 +309,7 @@ impl GhCli {
                 "view",
                 pr_url,
                 "--json",
-                "number,url,state,mergedAt,mergeCommit,title,baseRefName,headRefName",
+                "number,url,state,mergedAt,mergeCommit,title,baseRefName,headRefName,isDraft,statusCheckRollup",
             ],
             None,
         )?;
@@ -466,6 +507,8 @@ impl GhCli {
             title: request.title.clone(),
             base_branch: request.base_branch.clone(),
             head_branch: request.head_branch.clone(),
+            is_draft: false,
+            ci_status: None,
         })
     }
 
@@ -507,6 +550,8 @@ impl GhCli {
             title: pr.title.unwrap_or_default(),
             base_branch: pr.base_ref_name.unwrap_or_default(),
             head_branch: pr.head_ref_name.unwrap_or_default(),
+            is_draft: pr.is_draft,
+            ci_status: ci_status_from_rollup(&pr.status_check_rollup),
         }
     }
 

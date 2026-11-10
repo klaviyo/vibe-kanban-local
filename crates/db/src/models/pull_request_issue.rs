@@ -1,6 +1,6 @@
 use api_types::{
-    DeleteResponse, MutationResponse, PullRequest as WirePullRequest, PullRequestIssue,
-    PullRequestStatus,
+    DeleteResponse, MutationResponse, PullRequest as WirePullRequest, PullRequestCiStatus,
+    PullRequestIssue, PullRequestStatus,
 };
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
@@ -146,6 +146,8 @@ impl PullRequestIssueRepository {
                 pr.target_branch_name  as "target_branch_name!: String",
                 pr.merged_at           as "merged_at: DateTime<Utc>",
                 pr.merge_commit_sha    as "merge_commit_sha: String",
+                pr.is_draft            as "is_draft!: bool",
+                pr.ci_status           as "ci_status: String",
                 pr.created_at          as "created_at!: DateTime<Utc>",
                 pr.updated_at          as "updated_at!: DateTime<Utc>",
                 i.id                   as "issue_id!: Uuid",
@@ -178,6 +180,8 @@ impl PullRequestIssueRepository {
                 merged_at: row.merged_at,
                 merge_commit_sha: row.merge_commit_sha,
                 target_branch_name: row.target_branch_name,
+                is_draft: row.is_draft,
+                ci_status: ci_status_to_wire(row.ci_status.as_deref()),
                 project_id: row.project_id,
                 issue_id: row.issue_id,
                 workspace_id: row.workspace_id,
@@ -209,6 +213,8 @@ impl PullRequestIssueRepository {
                 pr.target_branch_name  as "target_branch_name!: String",
                 pr.merged_at           as "merged_at: DateTime<Utc>",
                 pr.merge_commit_sha    as "merge_commit_sha: String",
+                pr.is_draft            as "is_draft!: bool",
+                pr.ci_status           as "ci_status: String",
                 pr.created_at          as "created_at!: DateTime<Utc>",
                 pr.updated_at          as "updated_at!: DateTime<Utc>",
                 i.id                   as "issue_id!: Uuid",
@@ -237,6 +243,8 @@ impl PullRequestIssueRepository {
                 merged_at: row.merged_at,
                 merge_commit_sha: row.merge_commit_sha,
                 target_branch_name: row.target_branch_name,
+                is_draft: row.is_draft,
+                ci_status: ci_status_to_wire(row.ci_status.as_deref()),
                 project_id: row.project_id,
                 issue_id: row.issue_id,
                 workspace_id: row.workspace_id,
@@ -281,6 +289,15 @@ impl PullRequestIssueRepository {
                 issue_id: row.issue_id,
             })
             .collect())
+    }
+}
+
+fn ci_status_to_wire(s: Option<&str>) -> Option<PullRequestCiStatus> {
+    match s? {
+        "passing" => Some(PullRequestCiStatus::Passing),
+        "failing" => Some(PullRequestCiStatus::Failing),
+        "pending" => Some(PullRequestCiStatus::Pending),
+        _ => None,
     }
 }
 

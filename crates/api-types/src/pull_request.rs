@@ -17,6 +17,14 @@ pub enum PullRequestStatus {
     Closed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PullRequestCiStatus {
+    Passing,
+    Failing,
+    Pending,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PullRequest {
     pub id: Uuid,
@@ -26,6 +34,8 @@ pub struct PullRequest {
     pub merged_at: Option<DateTime<Utc>>,
     pub merge_commit_sha: Option<String>,
     pub target_branch_name: String,
+    pub is_draft: bool,
+    pub ci_status: Option<PullRequestCiStatus>,
     pub project_id: Uuid,
     #[deprecated(note = "use pull_request_issues join table instead")]
     pub issue_id: Uuid,

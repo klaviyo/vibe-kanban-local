@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use detection::detect_provider_from_url;
 use enum_dispatch::enum_dispatch;
 pub use types::{
-    CreatePrRequest, GitHostError, PrComment, PrCommentAuthor, PrReviewComment, ProviderKind,
-    PullRequestDetail, ReviewCommentUser, UnifiedPrComment,
+    CiStatus, CreatePrRequest, GitHostError, PrComment, PrCommentAuthor, PrReviewComment,
+    ProviderKind, PullRequestDetail, ReviewCommentUser, UnifiedPrComment,
 };
 
 use self::{azure::AzureDevOpsProvider, github::GitHubProvider};
