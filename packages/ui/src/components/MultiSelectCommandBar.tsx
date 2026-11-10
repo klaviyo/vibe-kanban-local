@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckIcon, PlusIcon } from "@phosphor-icons/react";
-import { useTranslation } from "react-i18next";
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { CheckIcon, PlusIcon } from '@phosphor-icons/react';
+import { useTranslation } from 'react-i18next';
 import {
   Command,
   CommandInput,
@@ -8,9 +8,9 @@ import {
   CommandEmpty,
   CommandGroup,
   CommandItem,
-} from "./Command";
-import { PrimaryButton } from "./PrimaryButton";
-import { InlineColorPicker, PRESET_COLORS } from "./ColorPicker";
+} from './Command';
+import { PrimaryButton } from './PrimaryButton';
+import { InlineColorPicker, PRESET_COLORS } from './ColorPicker';
 
 export interface MultiSelectOption<T extends string = string> {
   value: T;
@@ -48,7 +48,7 @@ export function MultiSelectCommandBar<T extends string = string>({
   onSearchChange,
   create,
 }: MultiSelectCommandBarProps<T>) {
-  const { t } = useTranslation("common");
+  const { t } = useTranslation('common');
   const [isCreating, setIsCreating] = useState(false);
   const [colorIndex, setColorIndex] = useState(0);
   const colorPickerRef = useRef<HTMLDivElement>(null);
@@ -74,22 +74,22 @@ export function MultiSelectCommandBar<T extends string = string>({
         tabIndex={-1}
         className="rounded-sm border border-border p-base space-y-base outline-none"
         onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") {
+          if (e.key === 'ArrowLeft') {
             e.preventDefault();
             setColorIndex(
-              (i) => (i - 1 + PRESET_COLORS.length) % PRESET_COLORS.length,
+              (i) => (i - 1 + PRESET_COLORS.length) % PRESET_COLORS.length
             );
-          } else if (e.key === "ArrowRight") {
+          } else if (e.key === 'ArrowRight') {
             e.preventDefault();
             setColorIndex((i) => (i + 1) % PRESET_COLORS.length);
-          } else if (e.key === "Enter") {
+          } else if (e.key === 'Enter') {
             e.preventDefault();
             confirmCreate();
           }
         }}
       >
         <div className="text-sm text-normal">
-          {t("kanban.selectColorFor")}{" "}
+          {t('kanban.selectColorFor')}{' '}
           <span className="font-medium">{newName}</span>
         </div>
         <InlineColorPicker
@@ -105,14 +105,14 @@ export function MultiSelectCommandBar<T extends string = string>({
             onClick={() => setIsCreating(false)}
             className="px-base py-half text-sm text-low hover:text-normal hover:bg-panel rounded-sm transition-colors"
           >
-            {t("buttons.cancel")}
+            {t('buttons.cancel')}
           </button>
           <button
             type="button"
             onClick={confirmCreate}
             className="px-base py-half text-sm text-high bg-brand hover:bg-brand/90 rounded-sm transition-colors"
           >
-            {t("buttons.create")}
+            {t('buttons.create')}
           </button>
         </div>
       </div>
@@ -128,7 +128,7 @@ export function MultiSelectCommandBar<T extends string = string>({
         return 0;
       }}
       onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
           e.preventDefault();
           onClose();
         }
@@ -144,7 +144,7 @@ export function MultiSelectCommandBar<T extends string = string>({
       <CommandList className="min-h-[200px]">
         {!showCreate && (
           <CommandEmpty>
-            {t("commandBar.noResults", "No results found")}
+            {t('commandBar.noResults', 'No results found')}
           </CommandEmpty>
         )}
         <CommandGroup>
@@ -175,7 +175,7 @@ export function MultiSelectCommandBar<T extends string = string>({
               <div className="flex items-center gap-base flex-1 text-brand">
                 <PlusIcon className="size-icon-sm" weight="bold" />
                 <span>
-                  {t("kanban.createTag")} &quot;{newName}&quot;
+                  {t('kanban.createTag')} &quot;{newName}&quot;
                 </span>
               </div>
             </CommandItem>
@@ -184,7 +184,7 @@ export function MultiSelectCommandBar<T extends string = string>({
       </CommandList>
       <div className="border-t border-border p-base">
         <PrimaryButton onClick={onClose} className="w-full justify-center">
-          {t("buttons.close")}
+          {t('buttons.close')}
         </PrimaryButton>
       </div>
     </Command>

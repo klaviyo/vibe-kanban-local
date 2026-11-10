@@ -19,7 +19,14 @@ export interface PrBadgeProps {
   className?: string;
 }
 
-export function PrBadge({ number, url, status, isDraft, ciStatus, className }: PrBadgeProps) {
+export function PrBadge({
+  number,
+  url,
+  status,
+  isDraft,
+  ciStatus,
+  className,
+}: PrBadgeProps) {
   const isOpen = status === 'open';
   const isDraftOpen = isOpen && isDraft;
   return (
@@ -49,10 +56,7 @@ export function PrBadge({ number, url, status, isDraft, ciStatus, className }: P
         <XIcon className="size-icon-2xs" weight="bold" />
       )}
       {isOpen && ciStatus === 'pending' && (
-        <SpinnerGapIcon
-          className="size-icon-2xs animate-spin"
-          weight="bold"
-        />
+        <SpinnerGapIcon className="size-icon-2xs animate-spin" weight="bold" />
       )}
     </a>
   );

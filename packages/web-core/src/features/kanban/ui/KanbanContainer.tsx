@@ -879,11 +879,7 @@ export function KanbanContainer() {
         openIssue(issueId);
       }
     },
-    [
-      openIssue,
-      handleIssueClick,
-      setAnchor,
-    ]
+    [openIssue, handleIssueClick, setAnchor]
   );
 
   const handleAddTask = useCallback(
