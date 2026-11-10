@@ -7,7 +7,7 @@ import {
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { PRESET_COLORS } from './ColorPicker';
-import { PrBadge, type PrBadgeStatus } from './PrBadge';
+import { PrBadge, type PrBadgeCiStatus, type PrBadgeStatus } from './PrBadge';
 import { LinearBadge } from './LinearBadge';
 import { TAG_COLORS } from './SearchableTagDropdown';
 
@@ -25,6 +25,8 @@ export interface LinkedPullRequest {
   number: number;
   url: string;
   status: PrBadgeStatus;
+  isDraft?: boolean;
+  ciStatus?: PrBadgeCiStatus | null;
 }
 
 export interface LinkedIssue {
@@ -143,6 +145,8 @@ export function IssueTagsRow<TTag extends IssueTagBase>({
           number={pr.number}
           url={pr.url}
           status={pr.status}
+          isDraft={pr.isDraft}
+          ciStatus={pr.ciStatus}
         />
       ))}
 

@@ -81,6 +81,8 @@ export function IssueWorkspacesSectionContainer({
           number: pr.number,
           url: pr.url,
           status: pr.status as 'open' | 'merged' | 'closed',
+          isDraft: pr.is_draft,
+          ciStatus: pr.ci_status,
         }));
 
       // Get owner

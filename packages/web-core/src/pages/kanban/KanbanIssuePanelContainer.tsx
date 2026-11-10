@@ -231,6 +231,8 @@ export function KanbanIssuePanelContainer({
       number: pr.number,
       url: pr.url,
       status: pr.status,
+      isDraft: pr.is_draft,
+      ciStatus: pr.ci_status,
     }));
   }, [getPullRequestsForIssue, selectedKanbanIssueId]);
 

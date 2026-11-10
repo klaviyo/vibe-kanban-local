@@ -573,6 +573,8 @@ export function KanbanContainer() {
         number: pr.number,
         url: pr.url,
         status: pr.status as 'open' | 'merged' | 'closed',
+        isDraft: pr.is_draft,
+        ciStatus: pr.ci_status,
       });
       map.set(pr.workspace_id, prs);
     }
@@ -1070,15 +1072,26 @@ export function KanbanContainer() {
                         );
                         const issueCardPullRequests = getPullRequestsForIssue(
                           issue.id
-                        ).filter((pr) => {
-                          if (!pr.workspace_id) {
-                            return true;
-                          }
+                        )
+                          .filter((pr) => {
+                            if (!pr.workspace_id) {
+                              return true;
+                            }
 
-                          // If this PR is already visible under a workspace card,
-                          // do not render it again at the issue level.
-                          return !workspaceIdsShownOnCard.has(pr.workspace_id);
-                        });
+                            // If this PR is already visible under a workspace card,
+                            // do not render it again at the issue level.
+                            return !workspaceIdsShownOnCard.has(
+                              pr.workspace_id
+                            );
+                          })
+                          .map((pr) => ({
+                            id: pr.id,
+                            number: pr.number,
+                            url: pr.url,
+                            status: pr.status,
+                            isDraft: pr.is_draft,
+                            ciStatus: pr.ci_status,
+                          }));
 
                         return (
                           <KanbanCard
