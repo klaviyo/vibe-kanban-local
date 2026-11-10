@@ -311,6 +311,8 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
               number={pr.number}
               url={pr.url}
               status={pr.status}
+              isDraft={pr.isDraft}
+              ciStatus={pr.ciStatus}
             />
           ))}
           {pullRequests.length > 2 && (

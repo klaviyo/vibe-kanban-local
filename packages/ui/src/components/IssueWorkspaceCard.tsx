@@ -1,7 +1,6 @@
 import { cn } from '../lib/cn';
 import { useTranslation } from 'react-i18next';
 import {
-  GitPullRequestIcon,
   DotsThreeIcon,
   LinkBreakIcon,
   TrashIcon,
@@ -12,6 +11,7 @@ import {
 } from '@phosphor-icons/react';
 import { UserAvatar, type UserAvatarUser } from './UserAvatar';
 import { RunningDots } from './RunningDots';
+import { PrBadge, type PrBadgeCiStatus } from './PrBadge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +23,8 @@ export interface WorkspacePr {
   number: number;
   url: string;
   status: 'open' | 'merged' | 'closed';
+  isDraft?: boolean;
+  ciStatus?: PrBadgeCiStatus | null;
 }
 
 export interface WorkspaceWithStats {
@@ -281,24 +283,14 @@ export function IssueWorkspaceCard({
         <div className="hidden sm:flex items-center gap-half shrink-0">
           {workspace.prs.length > 0 ? (
             workspace.prs.map((pr) => (
-              <a
+              <PrBadge
                 key={pr.number}
-                href={pr.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  'flex items-center gap-half px-1.5 py-0.5 rounded text-xs font-medium transition-colors',
-                  pr.status === 'merged'
-                    ? 'bg-merged/10 text-merged hover:bg-merged/20'
-                    : pr.status === 'closed'
-                      ? 'bg-error/10 text-error hover:bg-error/20'
-                      : 'bg-success/10 text-success hover:bg-success/20'
-                )}
-              >
-                <GitPullRequestIcon className="size-icon-2xs" weight="bold" />
-                <span>#{pr.number}</span>
-              </a>
+                number={pr.number}
+                url={pr.url}
+                status={pr.status}
+                isDraft={pr.isDraft}
+                ciStatus={pr.ciStatus}
+              />
             ))
           ) : showNoPrText ? (
             <span className="text-xs text-low whitespace-nowrap">
