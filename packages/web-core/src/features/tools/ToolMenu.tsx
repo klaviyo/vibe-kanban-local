@@ -63,7 +63,7 @@ export function ToolMenu({ tool, target, issueId, onDone }: ToolMenuProps) {
 
   return (
     <div role="menu" className="min-w-48 max-w-80">
-      <p className="px-base py-half text-xs font-medium text-low">
+      <p className="px-base py-half text-xs font-semibold text-normal">
         {tool.title}
       </p>
       {spec.dynamic && menu.isPending && (
