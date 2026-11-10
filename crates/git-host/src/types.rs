@@ -139,6 +139,24 @@ impl UnifiedPrComment {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum CiStatus {
+    Passing,
+    Failing,
+    Pending,
+}
+
+impl CiStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CiStatus::Passing => "passing",
+            CiStatus::Failing => "failing",
+            CiStatus::Pending => "pending",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PullRequestDetail {
     pub number: i64,
@@ -149,6 +167,11 @@ pub struct PullRequestDetail {
     pub title: String,
     pub base_branch: String,
     pub head_branch: String,
+    #[serde(default)]
+    pub is_draft: bool,
+    /// `None` when the PR has no checks.
+    #[serde(default)]
+    pub ci_status: Option<CiStatus>,
 }
 
 impl From<PullRequestDetail> for PullRequestInfo {

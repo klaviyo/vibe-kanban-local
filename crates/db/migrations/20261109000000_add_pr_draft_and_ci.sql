@@ -1,0 +1,2 @@
+ALTER TABLE pull_requests ADD COLUMN is_draft INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pull_requests ADD COLUMN ci_status TEXT;

@@ -316,7 +316,13 @@ export type UnifiedPrComment = { "comment_type": "general", id: string, author: 
 
 export type ProviderKind = "git_hub" | "azure_dev_ops" | "unknown";
 
-export type PullRequestDetail = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, title: string, base_branch: string, head_branch: string, };
+export type CiStatus = "passing" | "failing" | "pending";
+
+export type PullRequestDetail = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, title: string, base_branch: string, head_branch: string, is_draft: boolean, 
+/**
+ * `None` when the PR has no checks.
+ */
+ci_status: CiStatus | null, };
 
 export type GitRemote = { name: string, url: string, };
 

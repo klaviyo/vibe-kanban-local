@@ -216,6 +216,8 @@ export function IssueListRow({
                     number={pr.number}
                     url={pr.url}
                     status={pr.status}
+                    isDraft={pr.isDraft}
+                    ciStatus={pr.ciStatus}
                   />
                 ))}
                 {pullRequests.length > MAX_VISIBLE_PRS && (

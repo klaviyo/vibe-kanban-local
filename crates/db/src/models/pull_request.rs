@@ -126,6 +126,22 @@ impl PullRequest {
         Ok(())
     }
 
+    /// Runtime (unchecked) query: the PR monitor refreshes these on every poll.
+    pub async fn update_checks(
+        pool: &SqlitePool,
+        pr_url: &str,
+        is_draft: bool,
+        ci_status: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE pull_requests SET is_draft = ?, ci_status = ? WHERE pr_url = ?")
+            .bind(is_draft)
+            .bind(ci_status)
+            .bind(pr_url)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn find_by_url(
         pool: &SqlitePool,
         pr_url: &str,

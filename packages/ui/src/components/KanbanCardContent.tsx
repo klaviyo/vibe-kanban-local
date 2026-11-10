@@ -12,7 +12,7 @@ import { cn } from '../lib/cn';
 import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
 import { KanbanBadge } from './KanbanBadge';
 import { RunningDots } from './RunningDots';
-import { PrBadge, type PrBadgeStatus } from './PrBadge';
+import { PrBadge, type PrBadgeCiStatus, type PrBadgeStatus } from './PrBadge';
 import { LinearBadge } from './LinearBadge';
 import {
   RelationshipBadge,
@@ -36,6 +36,8 @@ export interface KanbanPullRequest {
   number: number;
   url: string;
   status: PrBadgeStatus;
+  isDraft?: boolean;
+  ciStatus?: PrBadgeCiStatus | null;
 }
 
 export interface TagEditRenderProps<TTag extends KanbanTag = KanbanTag> {

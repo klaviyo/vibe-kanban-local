@@ -122,6 +122,13 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
         );
 
         if matches!(&status.status, MergeStatus::Open) {
+            PullRequest::update_checks(
+                &self.db.pool,
+                &pr.pr_url,
+                status.is_draft,
+                status.ci_status.map(|c| c.as_str()),
+            )
+            .await?;
             return Ok(());
         }
 

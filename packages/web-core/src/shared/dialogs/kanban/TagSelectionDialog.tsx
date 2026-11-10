@@ -15,12 +15,18 @@ export interface TagSelectionDialogProps {
   issueIds: string[];
 }
 
-function TagSelectionContent({ issueIds }: { issueIds: string[] }) {
+function TagSelectionContent({
+  projectId,
+  issueIds,
+}: {
+  projectId: string;
+  issueIds: string[];
+}) {
   const { t } = useTranslation('common');
   const modal = useModal();
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [search, setSearch] = useState('');
-  const { tags, issueTags, insertIssueTag, removeIssueTag } =
+  const { tags, issueTags, insertTag, insertIssueTag, removeIssueTag } =
     useProjectContext();
 
   // A tag counts as selected when any selected issue has it; toggling a
@@ -81,6 +87,25 @@ function TagSelectionContent({ issueIds }: { issueIds: string[] }) {
     [selectedIds, issueIds, issueTags, insertIssueTag, removeIssueTag]
   );
 
+  const create = useMemo(
+    () => ({
+      exists: (name: string) =>
+        tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase()),
+      onCreate: (name: string, color: string) => {
+        const { data: newTag } = insertTag({
+          project_id: projectId,
+          name,
+          color,
+        });
+        for (const issueId of issueIds) {
+          insertIssueTag({ issue_id: issueId, tag_id: newTag.id });
+        }
+        setSearch('');
+      },
+    }),
+    [tags, insertTag, insertIssueTag, projectId, issueIds]
+  );
+
   const handleCloseAutoFocus = useCallback((event: Event) => {
     event.preventDefault();
     previousFocusRef.current?.focus();
@@ -100,6 +125,7 @@ function TagSelectionContent({ issueIds }: { issueIds: string[] }) {
         onClose={() => modal.hide()}
         search={search}
         onSearchChange={setSearch}
+        create={create}
       />
     </CommandDialog>
   );
@@ -108,7 +134,7 @@ function TagSelectionContent({ issueIds }: { issueIds: string[] }) {
 const TagSelectionDialogImpl = create<TagSelectionDialogProps>(
   ({ projectId, issueIds }) => (
     <ProjectProvider projectId={projectId}>
-      <TagSelectionContent issueIds={issueIds} />
+      <TagSelectionContent projectId={projectId} issueIds={issueIds} />
     </ProjectProvider>
   )
 );
