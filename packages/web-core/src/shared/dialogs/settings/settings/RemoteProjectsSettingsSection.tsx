@@ -43,6 +43,7 @@ import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { DeleteRemoteProjectDialog } from '@/shared/dialogs/org/DeleteRemoteProjectDialog';
 import { useShape } from '@/shared/integrations/electric/hooks';
+import { ProjectLabelsSettings } from './ProjectLabelsSettings';
 
 import {
   PROJECTS_SHAPE,
@@ -1458,6 +1459,10 @@ export function RemoteProjectsSettingsSection({
               </Droppable>
             </DragDropContext>
           </div>
+        )}
+
+        {selectedProjectId && (
+          <ProjectLabelsSettings projectId={selectedProjectId} />
         )}
       </SettingsCard>
 
