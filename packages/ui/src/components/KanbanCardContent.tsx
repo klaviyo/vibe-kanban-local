@@ -38,6 +38,7 @@ export interface KanbanPullRequest {
   status: PrBadgeStatus;
   isDraft?: boolean;
   ciStatus?: PrBadgeCiStatus | null;
+  reviewsOk?: boolean | null;
 }
 
 export interface TagEditRenderProps<TTag extends KanbanTag = KanbanTag> {
@@ -313,6 +314,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
               status={pr.status}
               isDraft={pr.isDraft}
               ciStatus={pr.ciStatus}
+              reviewsOk={pr.reviewsOk}
             />
           ))}
           {pullRequests.length > 2 && (

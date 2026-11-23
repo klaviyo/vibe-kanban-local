@@ -132,13 +132,17 @@ impl PullRequest {
         pr_url: &str,
         is_draft: bool,
         ci_status: Option<&str>,
+        reviews_ok: Option<bool>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE pull_requests SET is_draft = ?, ci_status = ? WHERE pr_url = ?")
-            .bind(is_draft)
-            .bind(ci_status)
-            .bind(pr_url)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "UPDATE pull_requests SET is_draft = ?, ci_status = ?, reviews_ok = ? WHERE pr_url = ?",
+        )
+        .bind(is_draft)
+        .bind(ci_status)
+        .bind(reviews_ok)
+        .bind(pr_url)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 

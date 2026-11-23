@@ -218,6 +218,7 @@ export function IssueListRow({
                     status={pr.status}
                     isDraft={pr.isDraft}
                     ciStatus={pr.ciStatus}
+                    reviewsOk={pr.reviewsOk}
                   />
                 ))}
                 {pullRequests.length > MAX_VISIBLE_PRS && (

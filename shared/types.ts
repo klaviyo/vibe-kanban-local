@@ -322,7 +322,12 @@ export type PullRequestDetail = { number: bigint, url: string, status: MergeStat
 /**
  * `None` when the PR has no checks.
  */
-ci_status: CiStatus | null, };
+ci_status: CiStatus | null, 
+/**
+ * `true` when no further reviews are outstanding (approved, or none
+ * required); `None` when the host doesn't report it.
+ */
+reviews_ok: boolean | null, };
 
 export type GitRemote = { name: string, url: string, };
 

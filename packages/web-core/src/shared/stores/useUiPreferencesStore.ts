@@ -70,6 +70,7 @@ export type KanbanFilterState = {
   searchQuery: string;
   priorities: IssuePriority[];
   tagIds: string[];
+  tagMatch: 'any' | 'all';
   sortField: KanbanSortField;
   sortDirection: 'asc' | 'desc';
 };
@@ -78,6 +79,7 @@ export const DEFAULT_KANBAN_FILTER_STATE: KanbanFilterState = {
   searchQuery: '',
   priorities: [],
   tagIds: [],
+  tagMatch: 'any',
   sortField: 'sort_order',
   sortDirection: 'asc',
 };
@@ -122,6 +124,7 @@ const cloneKanbanFilters = (filters: KanbanFilterState): KanbanFilterState => ({
   searchQuery: filters.searchQuery,
   priorities: [...filters.priorities],
   tagIds: [...filters.tagIds],
+  tagMatch: filters.tagMatch === 'all' ? 'all' : 'any',
   sortField: filters.sortField,
   sortDirection: filters.sortDirection,
 });

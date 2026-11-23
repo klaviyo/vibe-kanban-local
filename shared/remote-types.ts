@@ -56,7 +56,7 @@ export type PullRequestStatus = "open" | "merged" | "closed";
 
 export type PullRequestCiStatus = "passing" | "failing" | "pending";
 
-export type PullRequest = { id: string, url: string, number: number, status: PullRequestStatus, merged_at: string | null, merge_commit_sha: string | null, target_branch_name: string, is_draft: boolean, ci_status: PullRequestCiStatus | null, project_id: string, issue_id: string, workspace_id: string | null, created_at: string, updated_at: string, };
+export type PullRequest = { id: string, url: string, number: number, status: PullRequestStatus, merged_at: string | null, merge_commit_sha: string | null, target_branch_name: string, is_draft: boolean, ci_status: PullRequestCiStatus | null, reviews_ok: boolean | null, project_id: string, issue_id: string, workspace_id: string | null, created_at: string, updated_at: string, };
 
 export type PullRequestIssue = { id: string, pull_request_id: string, issue_id: string, };
 

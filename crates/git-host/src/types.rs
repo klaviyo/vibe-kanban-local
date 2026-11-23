@@ -172,6 +172,10 @@ pub struct PullRequestDetail {
     /// `None` when the PR has no checks.
     #[serde(default)]
     pub ci_status: Option<CiStatus>,
+    /// `true` when no further reviews are outstanding (approved, or none
+    /// required); `None` when the host doesn't report it.
+    #[serde(default)]
+    pub reviews_ok: Option<bool>,
 }
 
 impl From<PullRequestDetail> for PullRequestInfo {
