@@ -29,6 +29,16 @@ export const PRIORITY_ORDER: Record<IssuePriority, number> = {
   low: 3,
 };
 
+export function matchesTagFilter(
+  issueTagIds: string[],
+  filterTagIds: string[],
+  match: 'any' | 'all'
+): boolean {
+  return match === 'all'
+    ? filterTagIds.every((tagId) => issueTagIds.includes(tagId))
+    : issueTagIds.some((tagId) => filterTagIds.includes(tagId));
+}
+
 export function useKanbanFilters({
   issues,
   issueTags,
@@ -86,11 +96,11 @@ export function useKanbanFilters({
       );
     }
 
-    // Tags filter (OR within)
+    // Tags filter: any selected tag, or every selected tag when tagMatch is 'all'
     if (filters.tagIds.length > 0) {
       result = result.filter((issue) => {
         const issueTagIds = tagsByIssue[issue.id] ?? [];
-        return issueTagIds.some((tagId) => filters.tagIds.includes(tagId));
+        return matchesTagFilter(issueTagIds, filters.tagIds, filters.tagMatch);
       });
     }
 

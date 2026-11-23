@@ -121,6 +121,10 @@ struct GhPrResponse {
     is_draft: bool,
     #[serde(default)]
     status_check_rollup: Vec<GhCheck>,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or empty when the
+    /// base branch doesn't require reviews.
+    #[serde(default)]
+    review_decision: Option<String>,
 }
 
 /// One entry of `statusCheckRollup`: a CheckRun (`status`/`conclusion`) or a
@@ -309,7 +313,7 @@ impl GhCli {
                 "view",
                 pr_url,
                 "--json",
-                "number,url,state,mergedAt,mergeCommit,title,baseRefName,headRefName,isDraft,statusCheckRollup",
+                "number,url,state,mergedAt,mergeCommit,title,baseRefName,headRefName,isDraft,statusCheckRollup,reviewDecision",
             ],
             None,
         )?;
@@ -509,6 +513,7 @@ impl GhCli {
             head_branch: request.head_branch.clone(),
             is_draft: false,
             ci_status: None,
+            reviews_ok: None,
         })
     }
 
@@ -552,6 +557,10 @@ impl GhCli {
             head_branch: pr.head_ref_name.unwrap_or_default(),
             is_draft: pr.is_draft,
             ci_status: ci_status_from_rollup(&pr.status_check_rollup),
+            reviews_ok: Some(!matches!(
+                pr.review_decision.as_deref(),
+                Some("REVIEW_REQUIRED" | "CHANGES_REQUESTED")
+            )),
         }
     }
 
@@ -609,5 +618,31 @@ impl GhCli {
                 author_association: c.author_association,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reviews_ok(decision: &str) -> Option<bool> {
+        let raw = format!(r#"{{"number":1,"url":"u","state":"OPEN"{decision}}}"#);
+        GhCli::parse_pr_view(&raw).unwrap().reviews_ok
+    }
+
+    #[test]
+    fn reviews_ok_maps_review_decision() {
+        assert_eq!(reviews_ok(r#","reviewDecision":"APPROVED""#), Some(true));
+        assert_eq!(reviews_ok(r#","reviewDecision":"""#), Some(true));
+        assert_eq!(reviews_ok(r#","reviewDecision":null"#), Some(true));
+        assert_eq!(reviews_ok(""), Some(true));
+        assert_eq!(
+            reviews_ok(r#","reviewDecision":"REVIEW_REQUIRED""#),
+            Some(false)
+        );
+        assert_eq!(
+            reviews_ok(r#","reviewDecision":"CHANGES_REQUESTED""#),
+            Some(false)
+        );
     }
 }

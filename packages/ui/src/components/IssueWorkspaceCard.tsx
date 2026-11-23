@@ -25,6 +25,7 @@ export interface WorkspacePr {
   status: 'open' | 'merged' | 'closed';
   isDraft?: boolean;
   ciStatus?: PrBadgeCiStatus | null;
+  reviewsOk?: boolean | null;
 }
 
 export interface WorkspaceWithStats {
@@ -290,6 +291,7 @@ export function IssueWorkspaceCard({
                 status={pr.status}
                 isDraft={pr.isDraft}
                 ciStatus={pr.ciStatus}
+                reviewsOk={pr.reviewsOk}
               />
             ))
           ) : showNoPrText ? (

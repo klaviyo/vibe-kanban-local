@@ -3,6 +3,7 @@ import {
   CheckIcon,
   GitPullRequestIcon,
   SpinnerGapIcon,
+  ThumbsUpIcon,
   XIcon,
 } from '@phosphor-icons/react';
 
@@ -16,6 +17,7 @@ export interface PrBadgeProps {
   status: PrBadgeStatus;
   isDraft?: boolean;
   ciStatus?: PrBadgeCiStatus | null;
+  reviewsOk?: boolean | null;
   className?: string;
 }
 
@@ -25,6 +27,7 @@ export function PrBadge({
   status,
   isDraft,
   ciStatus,
+  reviewsOk,
   className,
 }: PrBadgeProps) {
   const isOpen = status === 'open';
@@ -53,10 +56,16 @@ export function PrBadge({
         <CheckIcon className="size-icon-2xs" weight="bold" />
       )}
       {isOpen && ciStatus === 'failing' && (
-        <XIcon className="size-icon-2xs" weight="bold" />
+        <XIcon className="size-icon-2xs text-error" weight="bold" />
       )}
       {isOpen && ciStatus === 'pending' && (
         <SpinnerGapIcon className="size-icon-2xs animate-spin" weight="bold" />
+      )}
+      {isOpen && !isDraft && reviewsOk != null && (
+        <ThumbsUpIcon
+          className="size-icon-2xs"
+          weight={reviewsOk ? 'fill' : 'regular'}
+        />
       )}
     </a>
   );

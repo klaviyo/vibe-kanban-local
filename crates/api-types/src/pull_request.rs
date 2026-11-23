@@ -36,6 +36,7 @@ pub struct PullRequest {
     pub target_branch_name: String,
     pub is_draft: bool,
     pub ci_status: Option<PullRequestCiStatus>,
+    pub reviews_ok: Option<bool>,
     pub project_id: Uuid,
     #[deprecated(note = "use pull_request_issues join table instead")]
     pub issue_id: Uuid,

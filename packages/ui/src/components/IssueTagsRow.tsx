@@ -27,6 +27,7 @@ export interface LinkedPullRequest {
   status: PrBadgeStatus;
   isDraft?: boolean;
   ciStatus?: PrBadgeCiStatus | null;
+  reviewsOk?: boolean | null;
 }
 
 export interface LinkedIssue {
@@ -147,6 +148,7 @@ export function IssueTagsRow<TTag extends IssueTagBase>({
           status={pr.status}
           isDraft={pr.isDraft}
           ciStatus={pr.ciStatus}
+          reviewsOk={pr.reviewsOk}
         />
       ))}
 

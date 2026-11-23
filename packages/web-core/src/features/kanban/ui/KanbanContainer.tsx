@@ -123,6 +123,10 @@ const areKanbanFiltersEqual = (
     return false;
   }
 
+  if ((left.tagMatch === 'all') !== (right.tagMatch === 'all')) {
+    return false;
+  }
+
   return (
     left.sortField === right.sortField &&
     left.sortDirection === right.sortDirection
@@ -333,6 +337,16 @@ export function KanbanContainer() {
       setKanbanProjectViewFilters(projectId, activeViewId, {
         ...kanbanFilters,
         tagIds,
+      });
+    },
+    [activeViewId, kanbanFilters, projectId, setKanbanProjectViewFilters]
+  );
+
+  const setKanbanTagMatch = useCallback(
+    (tagMatch: 'any' | 'all') => {
+      setKanbanProjectViewFilters(projectId, activeViewId, {
+        ...kanbanFilters,
+        tagMatch,
       });
     },
     [activeViewId, kanbanFilters, projectId, setKanbanProjectViewFilters]
@@ -575,6 +589,7 @@ export function KanbanContainer() {
         status: pr.status as 'open' | 'merged' | 'closed',
         isDraft: pr.is_draft,
         ciStatus: pr.ci_status,
+        reviewsOk: pr.reviews_ok,
       });
       map.set(pr.workspace_id, prs);
     }
@@ -703,6 +718,7 @@ export function KanbanContainer() {
           status: pr.status,
           isDraft: pr.is_draft,
           ciStatus: pr.ci_status,
+          reviewsOk: pr.reviews_ok,
         }))
       );
     }
@@ -1015,6 +1031,7 @@ export function KanbanContainer() {
             onSearchQueryChange={setKanbanSearchQuery}
             onPrioritiesChange={setKanbanPriorities}
             onTagsChange={setKanbanTags}
+            onTagMatchChange={setKanbanTagMatch}
             onSortChange={setKanbanSort}
             onShowSubIssuesChange={setShowSubIssues}
             onShowWorkspacesChange={setShowWorkspaces}
@@ -1091,6 +1108,7 @@ export function KanbanContainer() {
                             status: pr.status,
                             isDraft: pr.is_draft,
                             ciStatus: pr.ci_status,
+                            reviewsOk: pr.reviews_ok,
                           }));
 
                         return (

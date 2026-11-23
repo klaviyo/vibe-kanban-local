@@ -47,6 +47,7 @@ interface KanbanFiltersDialogProps {
   showWorkspaces: boolean;
   onPrioritiesChange: (priorities: IssuePriority[]) => void;
   onTagsChange: (tagIds: string[]) => void;
+  onTagMatchChange: (match: 'any' | 'all') => void;
   onSortChange: (
     sortField: KanbanSortField,
     sortDirection: 'asc' | 'desc'
@@ -66,6 +67,7 @@ export function KanbanFiltersDialog({
   showWorkspaces,
   onPrioritiesChange,
   onTagsChange,
+  onTagMatchChange,
   onSortChange,
   onShowSubIssuesChange,
   onShowWorkspacesChange,
@@ -130,6 +132,26 @@ export function KanbanFiltersDialog({
                 label={t('kanban.tags', 'Tags')}
                 menuLabel={t('kanban.filterByTag', 'Filter by tag')}
               />
+            )}
+
+            {tags.length > 0 && (
+              <div
+                className="flex items-center gap-half rounded-sm bg-panel px-base py-half"
+                title={t(
+                  'kanban.matchAllTagsTitle',
+                  'Off: issues with any selected tag. On: issues with every selected tag.'
+                )}
+              >
+                <span className="whitespace-nowrap text-sm text-normal">
+                  {t('kanban.matchAllTagsLabel', 'Match all tags')}
+                </span>
+                <Switch
+                  checked={filters.tagMatch === 'all'}
+                  onCheckedChange={(checked) =>
+                    onTagMatchChange(checked ? 'all' : 'any')
+                  }
+                />
+              </div>
             )}
 
             <PropertyDropdown

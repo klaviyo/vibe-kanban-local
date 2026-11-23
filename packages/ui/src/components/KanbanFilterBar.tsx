@@ -22,6 +22,7 @@ export interface KanbanFilterState<TSortField extends string = string> {
   searchQuery: string;
   priorities: PriorityLevel[];
   tagIds: string[];
+  tagMatch: 'any' | 'all';
   sortField: TSortField;
   sortDirection: 'asc' | 'desc';
 }
@@ -39,6 +40,7 @@ export interface RenderKanbanFiltersDialogProps<
   showWorkspaces: boolean;
   onPrioritiesChange: (priorities: PriorityLevel[]) => void;
   onTagsChange: (tagIds: string[]) => void;
+  onTagMatchChange: (match: 'any' | 'all') => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
   onShowSubIssuesChange: (show: boolean) => void;
   onShowWorkspacesChange: (show: boolean) => void;
@@ -61,6 +63,7 @@ interface KanbanFilterBarProps<
   onSearchQueryChange: (searchQuery: string) => void;
   onPrioritiesChange: (priorities: PriorityLevel[]) => void;
   onTagsChange: (tagIds: string[]) => void;
+  onTagMatchChange: (match: 'any' | 'all') => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
   onShowSubIssuesChange: (show: boolean) => void;
   onShowWorkspacesChange: (show: boolean) => void;
@@ -90,6 +93,7 @@ export function KanbanFilterBar<
   onSearchQueryChange,
   onPrioritiesChange,
   onTagsChange,
+  onTagMatchChange,
   onSortChange,
   onShowSubIssuesChange,
   onShowWorkspacesChange,
@@ -224,6 +228,7 @@ export function KanbanFilterBar<
         showWorkspaces,
         onPrioritiesChange,
         onTagsChange,
+        onTagMatchChange,
         onSortChange,
         onShowSubIssuesChange,
         onShowWorkspacesChange,

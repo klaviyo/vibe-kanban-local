@@ -127,6 +127,7 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
                 &pr.pr_url,
                 status.is_draft,
                 status.ci_status.map(|c| c.as_str()),
+                status.reviews_ok,
             )
             .await?;
             return Ok(());

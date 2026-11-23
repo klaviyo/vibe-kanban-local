@@ -488,6 +488,7 @@ impl AzCli {
                 .unwrap_or_default(),
             is_draft: false,
             ci_status: None,
+            reviews_ok: None,
         }
     }
 
